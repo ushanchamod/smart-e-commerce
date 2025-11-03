@@ -1,0 +1,19 @@
+# Node.js
+node_modules/
+npm-debug.log*
+.env
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Build artifacts (if applicable)
+dist/
+build/
+
+# IDE specific files (optional)
+.vscode/
+.idea/
+
+drizzle/
