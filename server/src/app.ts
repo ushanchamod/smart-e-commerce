@@ -17,7 +17,7 @@ app.use(cookieParser());
 
 app.use(
   cors({
-    origin: [],
+    origin: ["http://localhost:5173"],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
     credentials: true,
   })
@@ -30,6 +30,38 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use("/user", userRouter);
+app.post("/chat", (req: Request, res: Response) => {
+  const userMessage = req.body.message || "your message";
+
+  // 1. Define your sample products
+  const sampleProducts = [
+    {
+      id: 1,
+      name: "Eco-Friendly Water Bottle",
+      price: 25.99,
+      image: "https://picsum.photos/200",
+      description: "Stay hydrated with our 100% recycled materials bottle.",
+      url: "/products/1", // Add a link for a "View" button
+    },
+    {
+      id: 2,
+      name: "Wireless Headphones",
+      price: 149.99,
+      image: "https://picsum.photos/200",
+      description: "Immerse yourself in music with 40-hour battery life.",
+      url: "/products/2",
+    },
+  ];
+
+  // 2. Send the structured JSON response
+  res.json({
+    // The text part of the reply
+    reply: `You said: **${userMessage}**\n\nCertainly! Here are some products you might like:`,
+
+    // The special UI/UX content
+    products: sampleProducts,
+  });
+});
 
 app.use(errorHandler);
 
