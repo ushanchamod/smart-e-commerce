@@ -37,11 +37,11 @@ export async function createOwnerIfNotExists() {
   }
 
   const newOwner = {
-    username: "admin",
-    email: "admin@example.com",
+    email: "admin@local.com",
     phone: "1234567890",
     firstName: "Admin",
     role: "ADMIN" as const,
+    passwordHash: process.env.ADMIN_HASH!,
   };
 
   try {
@@ -55,14 +55,7 @@ export async function createOwnerIfNotExists() {
         throw new Error("Failed to create owner user");
       }
 
-      const credentialsResult = await tx
-        .insert(schema.userCredentialsTable)
-        .values({
-          userId: ownerResult[0].userId,
-          passwordHash: process.env.ADMIN_HASH!,
-        })
-        .returning();
-      return [ownerResult, credentialsResult];
+      return [ownerResult[0]];
     });
 
     console.log("✅ Owner account created successfully.");

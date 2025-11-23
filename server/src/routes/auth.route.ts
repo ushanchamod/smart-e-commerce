@@ -10,4 +10,4 @@ const router = Router();
 router.post("/login", validateData(loginUserSchema), UserLogin);
 router.get("/me", useGuard, GetMe);
 
-export { router as userRouter };
+export { router as authRouter };

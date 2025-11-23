@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import { errorHandler } from "./middlewares";
 import cookieParser from "cookie-parser";
-import { userRouter } from "./routes";
+import { authRouter } from "./routes";
 import cors from "cors";
 
 const app = express();
@@ -29,7 +29,7 @@ app.get("/", (req: Request, res: Response) => {
   res.send("Hello!! this is Redone City API");
 });
 
-app.use("/user", userRouter);
+app.use("/auth", authRouter);
 app.post("/chat", (req: Request, res: Response) => {
   const userMessage = req.body.message || "your message";
 
