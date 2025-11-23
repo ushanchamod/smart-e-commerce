@@ -6,34 +6,52 @@ import cors from "cors";
 
 const app = express();
 
+// =========================
+// Global Request Logger
+// =========================
 app.use((req, res, next) => {
-  console.log(`${req.method}, Request URL: ${req.url}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} → ${req.url}`);
   next();
 });
 
-app.use(express.json({ limit: "10kb" }));
-app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+// =========================
+// Body Parsers
+// =========================
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
 
+// =========================
+// CORS
+// =========================
 app.use(
   cors({
     origin: ["http://localhost:5173"],
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
     credentials: true,
   })
 );
 
 app.options("/{*any}", (req: Request, res: Response) => res.status(200).send());
 
+// =========================
+// Health Check
+// =========================
 app.get("/", (req: Request, res: Response) => {
-  res.send("Hello!! this is Redone City API");
+  res.send("Hello!! This is Redone City API");
 });
 
+// =========================
+// Auth Routes
+// =========================
 app.use("/auth", authRouter);
+
+// =========================
+// Chat Route
+// =========================
 app.post("/chat", (req: Request, res: Response) => {
   const userMessage = req.body.message || "your message";
 
-  // 1. Define your sample products
   const sampleProducts = [
     {
       id: 1,
@@ -41,7 +59,7 @@ app.post("/chat", (req: Request, res: Response) => {
       price: 25.99,
       image: "https://picsum.photos/200",
       description: "Stay hydrated with our 100% recycled materials bottle.",
-      url: "/products/1", // Add a link for a "View" button
+      url: "/products/1",
     },
     {
       id: 2,
@@ -53,16 +71,15 @@ app.post("/chat", (req: Request, res: Response) => {
     },
   ];
 
-  // 2. Send the structured JSON response
   res.json({
-    // The text part of the reply
-    reply: `You said: **${userMessage}**\n\nCertainly! Here are some products you might like:`,
-
-    // The special UI/UX content
+    reply: `You said: **${userMessage}**\n\nHere are some products you might like:`,
     products: sampleProducts,
   });
 });
 
+// =========================
+// Error Handler
+// =========================
 app.use(errorHandler);
 
 export default app;
