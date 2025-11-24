@@ -29,10 +29,10 @@ export async function createOwnerIfNotExists() {
   const existingOwner = await db
     .select()
     .from(schema.usersTable)
-    .where(eq(schema.usersTable.role, "OWNER"));
+    .where(eq(schema.usersTable.role, "ADMIN"));
 
   if (existingOwner.length > 0) {
-    console.log("✅ Owner account already exists. Skipping creation.");
+    console.log("✅ Admin account already exists. Skipping creation.");
     return true;
   }
 

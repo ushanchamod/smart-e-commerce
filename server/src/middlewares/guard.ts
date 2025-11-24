@@ -14,6 +14,8 @@ export const useGuard = async (
 ) => {
   const token = req.cookies.token || req.headers.authorization?.split(" ")[1];
 
+  console.log(token);
+
   if (!token) {
     return sendError(res, "No token provided", 401);
   }
@@ -26,6 +28,8 @@ export const useGuard = async (
     if (!decoded) {
       return sendError(res, "Invalid token", 401);
     }
+
+    req.user = decoded;
 
     next();
   } catch (error: unknown) {

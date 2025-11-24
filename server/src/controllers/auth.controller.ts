@@ -72,11 +72,15 @@ export const UserLogin = async (req: Request, res: Response) => {
 export const GetMe = async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user as JWTPayloadType;
 
+  console.log({
+    user,
+  });
+
   try {
     const [userData] = await db
       .select()
       .from(usersTable)
-      .where(eq(usersTable.email, user?.email));
+      .where(eq(usersTable.email, user?.email.toLowerCase()));
 
     if (!userData) {
       return sendError(res, "User not found", 404);
