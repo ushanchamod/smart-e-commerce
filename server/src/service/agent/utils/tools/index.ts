@@ -1,20 +1,18 @@
 import { StructuredTool } from "langchain";
 import {
-  add,
-  divide,
-  getAllProducts,
-  getAllUser,
-  multiply,
-  subtract,
+  getAllCategories,
+  getSomeProducts,
+  getSpecificProduct,
+  lookupPolicy,
+  searchProducts,
 } from "./tools";
 
 export const tools = [
-  add,
-  subtract,
-  divide,
-  multiply,
-  getAllUser,
-  getAllProducts,
+  getSomeProducts,
+  getSpecificProduct,
+  searchProducts,
+  getAllCategories,
+  lookupPolicy,
 ];
 
 export const toolsByName: Record<string, StructuredTool> = Object.fromEntries(

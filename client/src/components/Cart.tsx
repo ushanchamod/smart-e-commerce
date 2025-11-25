@@ -1,19 +1,28 @@
-import type { ProductType } from "../App";
+import { type Product } from "../types";
 
-interface CartProps {
-  cart: ProductType[];
-  removeFromCart: (id: number) => void;
-  checkout: () => void;
-}
-
-function Cart({ cart, removeFromCart, checkout }: CartProps) {
-  const total = cart.reduce((acc, item) => acc + item.price, 0);
+function Cart({ closeCart }: { closeCart: () => void }) {
+  const total = 0;
+  const cart: Product[] = [
+    {
+      id: "1",
+      name: "Elegant Mug",
+      price: 1999,
+      description: "A stylish mug for your favorite beverages.",
+      images: "https://example.com/images/mug1.jpg",
+      category: "gifts-for-him",
+      inventory: 50,
+    },
+  ];
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b border-gray-200 pb-4">
-        Your Cart
-      </h2>
+    <div className="bg-white rounded-bl-md rounded-tl-md shadow-md p-6 w-full h-full border-b border-gray-200 pb-4">
+      <div className="flex items-center justify-between mb-6 border-b border-gray-200 pb-4">
+        <h2 className="text-2xl font-bold text-gray-800 ">Your Cart</h2>
+
+        <button className="" title="Close cart" onClick={() => closeCart()}>
+          close
+        </button>
+      </div>
 
       {cart.length === 0 ? (
         <p className="text-gray-500 text-center py-4">No items in cart.</p>
@@ -25,7 +34,7 @@ function Cart({ cart, removeFromCart, checkout }: CartProps) {
               <div key={item.id} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <img
-                    src={item.image}
+                    src={item.images}
                     alt={item.name}
                     className="w-12 h-12 rounded-md object-cover border"
                   />
@@ -34,12 +43,12 @@ function Cart({ cart, removeFromCart, checkout }: CartProps) {
                       {item.name}
                     </span>
                     <span className="block text-sm text-gray-500">
-                      ${item.price}
+                      LKR {item.price}
                     </span>
                   </div>
                 </div>
                 <button
-                  onClick={() => removeFromCart(item.id)}
+                  onClick={() => null}
                   className="text-red-500 hover:text-red-700 font-bold text-xl px-2 rounded-full transition-colors"
                   title="Remove item"
                 >
@@ -53,12 +62,12 @@ function Cart({ cart, removeFromCart, checkout }: CartProps) {
           <hr className="my-6 border-gray-200" />
           <div className="flex justify-between items-center text-xl font-bold text-gray-800 mb-6">
             <span>Total:</span>
-            <span>${total.toFixed(2)}</span>
+            <span>LKR {total.toFixed(2)}</span>
           </div>
 
           {/* Checkout Button */}
           <button
-            onClick={checkout}
+            onClick={() => null}
             className="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition-colors duration-200"
           >
             Checkout

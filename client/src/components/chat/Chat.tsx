@@ -11,7 +11,9 @@ import {
   Sparkles,
 } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
-import { socket } from "../service/socket";
+import { socket } from "../../service/socket";
+// frame-motion
+import { motion } from "framer-motion";
 
 export interface Product {
   id: string;
@@ -69,6 +71,7 @@ const Chat = () => {
             { ...lastMsg, text: lastMsg.text + data.chunk },
           ];
         } else {
+          setIsTyping(false); // Hide typing when response starts streaming
           return [
             ...prev,
             {
@@ -91,6 +94,7 @@ const Chat = () => {
         if (lastMsg && lastMsg.sender === "bot") {
           return [...prev.slice(0, -1), { ...lastMsg, products: data.data }];
         }
+        setIsTyping(false); // Hide typing if products arrive first
         return [
           ...prev,
           {
@@ -112,7 +116,7 @@ const Chat = () => {
           {
             id: Date.now().toString(),
             sender: "bot",
-            text: `⚠️ Error: ${data.error}`,
+            text: `⚠️ Error: ${data.error || "Unknown error occurred"}`,
             timestamp: new Date(),
           },
         ]);
@@ -163,9 +167,13 @@ const Chat = () => {
   // 1. Minimized Launcher
   if (!isOpen) {
     return (
-      <button
+      <motion.button
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.3, delay: 0.5 }}
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 group flex items-center justify-center p-4 bg-linear-to-br from-indigo-600 to-purple-700 text-white rounded-full shadow-2xl hover:scale-110 hover:shadow-indigo-500/50 transition-all duration-300"
+        className="fixed bottom-6 right-6 z-50 p-4 bg-linear-to-br from-indigo-600 to-purple-700 text-white rounded-full shadow-2xl hover:scale-110 hover:shadow-indigo-500/50 transition-all duration-300"
+        title="Open Chat"
       >
         <MessageCircle className="h-7 w-7 animate-pulse" />
         <span className="absolute right-0 top-0 flex h-3 w-3">
@@ -180,14 +188,25 @@ const Chat = () => {
             }`}
           ></span>
         </span>
-      </button>
+      </motion.button>
     );
   }
 
   return (
-    <div className="fixed inset-0 sm:inset-auto sm:bottom-6 sm:right-6 z-50 flex items-end justify-end">
+    <motion.div
+      className="bg-black/30 fixed inset-0 z-50 flex items-end justify-end p-4 backdrop-blur-xs"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
       {/* Main Container */}
-      <div className="w-full h-full sm:h-[650px] sm:w-[420px] bg-white sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-100 animate-in slide-in-from-bottom-10 fade-in duration-300 font-sans">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.1 }}
+        className="w-full h-full sm:h-[650px] sm:w-[420px] bg-white sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-100 font-sans"
+      >
         <div className="relative bg-white/80 backdrop-blur-md p-4 border-b border-gray-100 flex justify-between items-center z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-linear-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center border border-indigo-50">
@@ -296,7 +315,7 @@ const Chat = () => {
                               <img
                                 src={product.image}
                                 alt={product.name}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
                               />
                             ) : (
                               <ShoppingBag className="h-8 w-8 text-gray-300" />
@@ -329,13 +348,15 @@ const Chat = () => {
                   </div>
                 )}
 
-                {/* Timestamp */}
-                <span className="text-[10px] text-gray-300 mt-1 px-1">
-                  {msg.timestamp.toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+                {/* Timestamp (only show if there's content) */}
+                {(msg.text || (msg.products && msg.products.length > 0)) && (
+                  <span className="text-[10px] text-gray-300 mt-1 px-1">
+                    {msg.timestamp.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
               </div>
 
               {/* Avatar for User */}
@@ -406,8 +427,8 @@ const Chat = () => {
             </p>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

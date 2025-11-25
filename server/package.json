@@ -14,7 +14,8 @@
     "drizzle:push": "drizzle-kit push",
     "drizzle:pull": "drizzle-kit pull",
     "drizzle:generate": "drizzle-kit generate",
-    "drizzle:studio": "npx drizzle-kit studio"
+    "drizzle:studio": "npx drizzle-kit studio",
+    "drizzle:migrate": "drizzle-kit migrate"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
@@ -40,6 +41,7 @@
   "dependencies": {
     "@langchain/core": "^1.0.6",
     "@langchain/langgraph": "^1.0.2",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
     "@langchain/openai": "^1.1.2",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",

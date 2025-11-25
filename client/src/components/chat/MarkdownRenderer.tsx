@@ -29,7 +29,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
 
   if (inline) {
     return (
-      <code className="bg-gray-100 text-pink-600 px-1.5 py-0.5 rounded-md">
+      <code className="bg-gray-100 text-red-600 px-1.5 py-0.5 rounded-md">
         {children}
       </code>
     );
@@ -52,7 +52,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         style={atomDark}
         language={lang}
         PreTag="pre"
-        // Fixed the className prop with correct Tailwind important modifiers
         className="p-4! text-sm! font-mono! leading-relaxed! overflow-x-auto!"
       >
         {code}
@@ -64,8 +63,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
 const MarkdownRenderer: React.FC<{ content: string }> = memo(({ content }) => {
   return (
     <ReactMarkdown
-      // Re-enabled prose for basic, clean text styling
-      //   className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+      // className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
       remarkPlugins={[remarkGfm]}
       components={{
         code: CodeBlock,

@@ -1,81 +1,76 @@
-import React from "react";
-
-// Define the shape of your product
-export interface Product {
-  id: number;
-  name: string;
-  price: number;
-  image: string;
-  description: string;
-  url: string;
-}
+import { ShoppingBag } from "lucide-react";
+import type { Product } from "../types";
+import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 interface ProductCardProps {
   product: Product;
+  onAddToCart?: (product: Product) => void;
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+export const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
+  const navigate = useNavigate();
+
+  const handleAddToCart = () => {
+    if (onAddToCart) onAddToCart(product);
+  };
+
+  // Support both string or array of image URLs
+  const imageUrl = Array.isArray(product.images)
+    ? product.images[0]
+    : product.images;
+
   return (
-    // 1. REMOVED bg-white, border, shadow
-    // 2. ADDED padding and a border-b for separation inside a list
-    <div className="group flex gap-4 p-2 border-b border-gray-100 last:border-b-0 last:pb-0">
-      {/* Image: Make it a link */}
-      <a
-        href={product.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="shrink-0" // Prevents image from shrinking
-      >
-        <img
-          src={product.image}
+    <motion.div
+      whileHover={{ scale: 1.02 }}
+      transition={{ duration: 0.2 }}
+      className="bg-white rounded-2xl border shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group"
+      onClick={() => navigate(`/product/${product.id}`)}
+    >
+      {/* IMAGE */}
+      <div className="relative w-full h-56 overflow-hidden bg-gray-100">
+        <motion.img
+          initial={{ scale: 1.1 }}
+          animate={{ scale: 1 }}
+          whileHover={{ scale: 1.05 }}
+          transition={{ duration: 0.4 }}
+          src={imageUrl}
           alt={product.name}
-          // Slightly larger image, rounded, subtle border
-          className="w-20 h-20 rounded-md object-cover border border-gray-200"
+          className="w-full h-full object-cover"
         />
-      </a>
 
-      {/* Details Container: Takes remaining space, flex-col to structure content */}
-      <div className="flex-1 flex flex-col justify-between min-w-0">
-        {/* Top section: Title and Description */}
-        <div>
-          {/* Title: Make it a link with hover effect */}
-          <a
-            href={product.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block"
-          >
-            <h4 className="font-semibold text-gray-800 truncate group-hover:text-blue-600 transition-colors">
-              {product.name}
-            </h4>
-          </a>
-
-          {/* Description: Use line-clamp for 2 lines of text */}
-          <p className="text-sm text-gray-500 line-clamp-2 mt-1">
-            {product.description}
-          </p>
-        </div>
-
-        {/* Bottom section: Price and Button */}
-        <div className="flex justify-between items-center mt-2">
-          <span className="text-xl font-bold text-gray-900">
-            {/* Use toFixed(2) for consistent price formatting (e.g., $25.00) */}
-            ${product.price.toFixed(2)}
-          </span>
-
-          {/* Button: Styled as a "pill" for a modern look */}
-          <a
-            href={product.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full font-semibold hover:bg-blue-100 transition-colors"
-          >
-            View Details
-          </a>
-        </div>
+        {/* Hover Overlay */}
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition" />
       </div>
-    </div>
+
+      {/* CONTENT */}
+      <div className="p-5">
+        <h3 className="font-semibold text-lg line-clamp-1 group-hover:text-black">
+          {product.name}
+        </h3>
+        <p className="text-gray-500 text-sm mb-3 line-clamp-1">
+          {product.category}
+        </p>
+
+        {/* PRICE */}
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-xl font-bold text-black">
+            {new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: "LKR",
+            }).format(product.price / 100)}
+          </span>
+        </div>
+
+        {/* BUTTON */}
+        <button
+          onClick={handleAddToCart}
+          className="w-full bg-black text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-900 transition-all active:scale-95"
+        >
+          <ShoppingBag size={18} />
+          Add to Cart
+        </button>
+      </div>
+    </motion.div>
   );
 };
-
-export default ProductCard;

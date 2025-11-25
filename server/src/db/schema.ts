@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { vector } from "drizzle-orm/pg-core";
 import {
   pgTable,
   serial,
@@ -46,35 +47,18 @@ export const productsTable = pgTable(
   {
     productId: serial("product_id").primaryKey(),
     name: varchar("name", { length: 150 }).notNull(),
-    description: text("description"),
     price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-    stock: integer("stock").default(0).notNull(),
+    description: text("description"),
+    image: varchar("image_url", { length: 255 }),
     categoryId: integer("category_id")
       .references(() => categoriesTable.categoryId)
       .notNull(),
-    imageUrl: varchar("image_url", { length: 255 }),
-    isActive: boolean("is_active").default(true).notNull(),
     createdAt: timestamp("created_at")
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
   },
   (table) => [index("products_category_idx").on(table.categoryId)]
 );
-
-export const addressesTable = pgTable("addresses", {
-  addressId: serial("address_id").primaryKey(),
-  userId: integer("user_id")
-    .references(() => usersTable.userId)
-    .notNull(),
-  street: varchar("street", { length: 255 }).notNull(),
-  city: varchar("city", { length: 100 }).notNull(),
-  state: varchar("state", { length: 100 }),
-  postalCode: varchar("postal_code", { length: 20 }),
-  country: varchar("country", { length: 100 }).notNull(),
-  createdAt: timestamp("created_at")
-    .default(sql`CURRENT_TIMESTAMP`)
-    .notNull(),
-});
 
 export const ordersTable = pgTable(
   "orders",
@@ -83,9 +67,7 @@ export const ordersTable = pgTable(
     userId: integer("user_id")
       .references(() => usersTable.userId)
       .notNull(),
-    addressId: integer("address_id")
-      .references(() => addressesTable.addressId)
-      .notNull(),
+    address: text("address").notNull(),
     totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
     status: varchar("status", { length: 20 }).default("PENDING").notNull(),
     createdAt: timestamp("created_at")
@@ -163,5 +145,16 @@ export const paymentsTable = pgTable(
       "payments_status_check",
       sql`${table.paymentStatus} IN ('PENDING', 'SUCCESS', 'FAILED', 'REFUNDED')`
     ),
+    check(
+      "payments_method_check",
+      sql`${table.paymentMethod} IN ('CREDIT_CARD', 'PAYPAL', 'BANK_TRANSFER', 'CASH_ON_DELIVERY')`
+    ),
   ]
 );
+
+export const documentsTable = pgTable("documents", {
+  id: serial("id").primaryKey(),
+  content: text("content").notNull(),
+  metadata: text("metadata"),
+  embedding: vector("embedding", { dimensions: 1536 }),
+});

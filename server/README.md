@@ -1,2 +1,1 @@
-DNS:Cloudflare
-File Bucket: Cloudflare R2
+CREATE EXTENSION IF NOT EXISTS vector;

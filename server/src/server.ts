@@ -5,7 +5,7 @@ dotenv.config();
 import { createOwnerIfNotExists, testDbConnection } from "./db";
 import http from "http";
 import { Server } from "socket.io";
-import { agent } from "./service/agent/agent";
+import { createAgent } from "./service/agent/agent";
 import { HumanMessage } from "@langchain/core/messages";
 import z from "zod";
 import { JWTPayloadType } from "./dto";
@@ -61,6 +61,7 @@ const startServer = async () => {
 
       socket.on("chatMessage", async (data: { message: string }) => {
         const userMessage = data.message || "";
+        const agent = await createAgent();
 
         let configurable = {};
 
@@ -99,21 +100,17 @@ const startServer = async () => {
               }
             }
 
-            /*
             if (event.event === "on_tool_end") {
               console.log(`🛠️ Tool finished: ${event.name}`);
-              console.log(`🛠️ Tool OUT: ${event.data.output}`);
 
               // You can filter specifically for your product tool name here
-              if (event.name === "fetch_product_list") {
-                socket.emit("suggestedProducts", {
-                  toolName: event.name,
-                  data: event.data.output,
-                });
-              }
-
+              // if (event.name === "fetch_product_list") {
+              //   socket.emit("suggestedProducts", {
+              //     toolName: event.name,
+              //     data: event.data.output,
+              //   });
+              // }
             }
-            */
           }
 
           socket.emit("chatEnd", { status: "success" });
