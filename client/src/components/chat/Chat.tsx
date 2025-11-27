@@ -4,24 +4,25 @@ import {
   X,
   Send,
   Bot,
-  ShoppingBag,
   RefreshCcw,
   Sparkles,
   ChevronRight,
   Zap,
+  ExternalLink,
 } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
-import { getSocket } from "../../service/socket";
+import { getSocket, resetSocket } from "../../service/socket";
 import { motion, AnimatePresence } from "framer-motion";
 
 // --- Interfaces ---
 export interface Product {
-  id: string;
+  id: string | number;
   name: string;
   price: string;
   image?: string;
   description?: string;
   category?: string;
+  product_path?: string;
 }
 
 interface Message {
@@ -30,6 +31,7 @@ interface Message {
   text: string;
   products?: Product[];
   timestamp: Date;
+  isStreaming?: boolean;
 }
 
 const SUGGESTED_QUESTIONS = [
@@ -46,17 +48,31 @@ const Chat = () => {
   const [input, setInput] = useState<string>("");
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(socket.connected);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // --- Scroll Logic ---
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const bottom =
+      Math.abs(
+        e.currentTarget.scrollHeight -
+          e.currentTarget.scrollTop -
+          e.currentTarget.clientHeight
+      ) < 50;
+    if (!bottom) setUserScrolledUp(true);
+    else setUserScrolledUp(false);
+  };
+
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   useEffect(() => {
     scrollToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isTyping, isOpen]);
 
   // --- Focus Input on Open ---
@@ -68,29 +84,45 @@ const Chat = () => {
 
   // --- Socket Logic ---
   useEffect(() => {
-    const onConnect = () => setIsConnected(true);
-    const onDisconnect = () => setIsConnected(false);
+    const onConnect = () => {
+      setIsConnected(true);
+      if (!localStorage.getItem("chat_session_id")) {
+        const newUUID = crypto.randomUUID();
+        localStorage.setItem("chat_session_id", newUUID);
+      }
+    };
+    const onDisconnect = () => {
+      setIsConnected(false);
+    };
 
-    const onChatStream = (data: { chunk: string }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onChatStream = (data: any) => {
+      const textChunk = data.chunk || data.content || "";
+
+      // FIXED: Allow spaces, only return if strictly empty string
+      if (!textChunk && textChunk !== " ") return;
+
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.sender === "bot") {
+
+        if (lastMsg && lastMsg.sender === "bot" && lastMsg.isStreaming) {
           return [
             ...prev.slice(0, -1),
-            { ...lastMsg, text: lastMsg.text + data.chunk },
-          ];
-        } else {
-          setIsTyping(false);
-          return [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              sender: "bot",
-              text: data.chunk,
-              timestamp: new Date(),
-            },
+            { ...lastMsg, text: lastMsg.text + textChunk },
           ];
         }
+
+        setIsTyping(false);
+        return [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            sender: "bot",
+            text: textChunk,
+            timestamp: new Date(),
+            isStreaming: true,
+          },
+        ];
       });
     };
 
@@ -100,24 +132,27 @@ const Chat = () => {
     }) => {
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-        // If the last message is from bot, append products to it
+
         if (lastMsg && lastMsg.sender === "bot") {
-          // Only update if products aren't already there to prevent dupes/flicker
-          if (!lastMsg.products) {
-            return [...prev.slice(0, -1), { ...lastMsg, products: data.data }];
-          }
-          return prev;
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...lastMsg,
+              products: data.data,
+              isStreaming: true, // Keep open for text
+            },
+          ];
         }
 
-        setIsTyping(false);
         return [
           ...prev,
           {
             id: Date.now().toString(),
             sender: "bot",
-            text: "", // Empty text, just products
+            text: "",
             products: data.data,
             timestamp: new Date(),
+            isStreaming: true,
           },
         ];
       });
@@ -125,17 +160,41 @@ const Chat = () => {
 
     const onChatEnd = (data: { status: string; error?: string }) => {
       setIsTyping(false);
-      if (data.status === "error") {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            sender: "bot",
-            text: `⚠️ **Error:** ${data.error || "Something went wrong."}`,
-            timestamp: new Date(),
-          },
-        ]);
-      }
+
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+
+        // Case 1: Close existing message
+        if (lastMsg && lastMsg.sender === "bot") {
+          const updated = [...prev];
+          updated[updated.length - 1] = { ...lastMsg, isStreaming: false };
+
+          if (data.status === "error") {
+            updated[updated.length - 1].text += `\n\n⚠️ **Error:** ${
+              data.error || "Unknown error"
+            }`;
+          }
+          return updated;
+        }
+
+        // Case 2: No message exists yet.
+        // FIXED: Only show error if the STATUS is error.
+        // If status is "success" but no message exists yet, do nothing (wait for stream).
+        if (data.status === "error") {
+          return [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              sender: "bot",
+              text: `⚠️ **Error:** ${data.error}`,
+              timestamp: new Date(),
+              isStreaming: false,
+            },
+          ];
+        }
+
+        return prev;
+      });
     };
 
     socket.on("connect", onConnect);
@@ -143,6 +202,9 @@ const Chat = () => {
     socket.on("chatStream", onChatStream);
     socket.on("suggestedProducts", onSuggestedProducts);
     socket.on("chatEnd", onChatEnd);
+    socket.on("connect_error", (err) => {
+      console.error("Connection Error:", err);
+    });
 
     return () => {
       socket.off("connect", onConnect);
@@ -150,11 +212,21 @@ const Chat = () => {
       socket.off("chatStream", onChatStream);
       socket.off("suggestedProducts", onSuggestedProducts);
       socket.off("chatEnd", onChatEnd);
+      socket.off("connect_error");
     };
   }, [socket]);
 
   const sendMessage = (text: string) => {
     if (!text.trim() || !isConnected) return;
+
+    setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
+
+    // FIXED: Ensure Session ID is retrieved OR Created AND Saved
+    let session_id = localStorage.getItem("chat_session_id");
+    if (!session_id) {
+      session_id = crypto.randomUUID();
+      localStorage.setItem("chat_session_id", session_id);
+    }
 
     setMessages((prev) => [
       ...prev,
@@ -163,11 +235,12 @@ const Chat = () => {
         sender: "user",
         text: text,
         timestamp: new Date(),
+        isStreaming: false,
       },
     ]);
     setInput("");
     setIsTyping(true);
-    socket.emit("chatMessage", { message: text });
+    socket.emit("chatMessage", { message: text, session_id: session_id });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -177,11 +250,16 @@ const Chat = () => {
     }
   };
 
+  const handleClearChat = () => {
+    setMessages([]);
+    resetSocket();
+    window.location.reload();
+  };
+
   // --- Render ---
 
   return (
     <>
-      {/* LAUNCHER BUTTON */}
       <AnimatePresence>
         {!isOpen && (
           <motion.button
@@ -193,6 +271,7 @@ const Chat = () => {
             onClick={() => setIsOpen(true)}
             className="fixed bottom-6 right-6 z-50 p-0 w-16 h-16 bg-black text-white rounded-full shadow-2xl hover:shadow-indigo-500/40 transition-all duration-300 flex items-center justify-center group"
           >
+            {/* ... Icon content ... */}
             <div className="absolute inset-0 rounded-full bg-linear-to-tr from-indigo-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative z-10">
               <MessageCircle size={32} strokeWidth={1.5} />
@@ -204,7 +283,6 @@ const Chat = () => {
         )}
       </AnimatePresence>
 
-      {/* CHAT WINDOW */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -216,6 +294,7 @@ const Chat = () => {
           >
             {/* Header */}
             <div className="bg-white/90 backdrop-blur-md p-4 border-b border-gray-100 flex justify-between items-center z-10 sticky top-0">
+              {/* ... Header Content ... */}
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <div className="w-10 h-10 bg-linear-to-br from-indigo-100 to-purple-50 rounded-full flex items-center justify-center border border-indigo-50 shadow-sm">
@@ -239,9 +318,8 @@ const Chat = () => {
 
               <div className="flex gap-1">
                 <button
-                  onClick={() => setMessages([])}
+                  onClick={handleClearChat}
                   className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear Chat"
                 >
                   <RefreshCcw size={18} />
                 </button>
@@ -255,21 +333,14 @@ const Chat = () => {
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth">
+            <div
+              className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth"
+              onScroll={handleScroll}
+            >
               {messages.length === 0 && (
+                /* ... Empty State ... */
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 animate-in fade-in zoom-in duration-300">
-                  <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-gray-100 flex items-center justify-center mb-6">
-                    <Sparkles className="h-8 w-8 text-indigo-500" />
-                  </div>
-                  <h4 className="text-lg font-bold text-gray-900 mb-2">
-                    How can I help?
-                  </h4>
-                  <p className="text-sm text-gray-500 mb-8 max-w-60">
-                    I can help you check stock, find products, or track your
-                    orders.
-                  </p>
-
-                  {/* Starter Chips */}
+                  {/* ... content ... */}
                   <div className="grid grid-cols-1 gap-2 w-full max-w-[280px]">
                     {SUGGESTED_QUESTIONS.map((q, i) => (
                       <button
@@ -277,10 +348,10 @@ const Chat = () => {
                         onClick={() => sendMessage(q)}
                         className="text-xs font-medium bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm py-2.5 px-4 rounded-xl transition-all text-left flex items-center justify-between group"
                       >
-                        {q}
+                        {q}{" "}
                         <ChevronRight
                           size={14}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0"
+                          className="opacity-0 group-hover:opacity-100"
                         />
                       </button>
                     ))}
@@ -322,50 +393,51 @@ const Chat = () => {
                     {/* Product Carousel */}
                     {msg.products && msg.products.length > 0 && (
                       <div className="w-full mt-3 max-w-full">
-                        {/* Header for Products */}
                         <div className="flex items-center gap-2 mb-2 px-1">
-                          <ShoppingBag size={14} className="text-indigo-600" />
-                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                          <Sparkles size={12} className="text-indigo-500" />
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                             Suggested Products
                           </span>
                         </div>
-
                         <div className="flex gap-3 overflow-x-auto pb-4 pt-1 px-1 scrollbar-hide snap-x">
-                          {msg.products.map((product, idx) => (
+                          {msg.products.map((product, i) => (
                             <div
-                              key={idx}
-                              className="min-w-[180px] max-w-[180px] bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-xl transition-all duration-300 group cursor-pointer"
+                              // FIXED: Use Index as fallback, NEVER Math.random()
+                              key={product.id || i}
+                              onClick={() => {
+                                if (product.product_path) {
+                                  window.open(product.product_path, "_blank");
+                                }
+                              }}
+                              className="min-w-[180px] max-w-[180px] bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group cursor-pointer"
                             >
-                              <div className="h-32 bg-gray-100 relative overflow-hidden">
+                              {/* ... Product Card Content ... */}
+                              <div className="h-32 w-full bg-gray-100 relative overflow-hidden">
                                 {product.image ? (
                                   <img
                                     src={product.image}
                                     alt={product.name}
-                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-gray-50">
-                                    <ShoppingBag className="text-gray-300" />
+                                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                    <span className="text-xs">No Image</span>
                                   </div>
                                 )}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                  <span className="text-white text-xs font-bold border border-white/50 px-3 py-1 rounded-full backdrop-blur-sm">
-                                    View Details
-                                  </span>
-                                </div>
                               </div>
                               <div className="p-3">
-                                <h4
-                                  className="font-semibold text-gray-800 text-xs truncate mb-1"
-                                  title={product.name}
-                                >
-                                  {product.name}
-                                </h4>
-                                <div className="flex justify-between items-center">
-                                  <span className="text-indigo-600 font-bold text-sm">
-                                    {product.price}
-                                  </span>
+                                <div className="flex justify-between items-start gap-1 mb-1">
+                                  <h5 className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">
+                                    {product.name}
+                                  </h5>
+                                  <ExternalLink
+                                    size={10}
+                                    className="text-gray-300 shrink-0"
+                                  />
                                 </div>
+                                <p className="text-xs font-semibold text-indigo-600">
+                                  {product.price}
+                                </p>
                               </div>
                             </div>
                           ))}
@@ -375,8 +447,7 @@ const Chat = () => {
 
                     {/* Timestamp */}
                     <span className="text-[10px] text-gray-400 mt-1 px-1">
-                      {msg.sender === "user" ? "You" : "Assistant"} •{" "}
-                      {msg.timestamp.toLocaleTimeString([], {
+                      {new Date(msg.timestamp).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
@@ -392,6 +463,7 @@ const Chat = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex justify-start items-center gap-2"
                 >
+                  {/* ... Loading Dots ... */}
                   <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
                     <Zap
                       className="h-3 w-3 text-indigo-500"
@@ -410,6 +482,7 @@ const Chat = () => {
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-gray-100">
+              {/* ... Input Field ... */}
               <div className="relative flex items-end gap-2 bg-gray-50 rounded-2xl border border-transparent focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50 transition-all p-2">
                 <input
                   name="chat-input"
@@ -437,7 +510,6 @@ const Chat = () => {
                   <Send size={18} />
                 </button>
               </div>
-
               <div className="text-center mt-2">
                 <p className="text-[10px] text-gray-300">
                   Powered by{" "}

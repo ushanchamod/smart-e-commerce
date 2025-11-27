@@ -54,6 +54,7 @@ export const productsTable = pgTable(
     price: decimal("price", { precision: 10, scale: 2 }).notNull(),
     description: text("description"),
     image: varchar("image_url", { length: 255 }),
+    embedding: vector("embedding", { dimensions: 1536 }),
     categoryId: integer("category_id")
       .references(() => categoriesTable.categoryId)
       .notNull(),

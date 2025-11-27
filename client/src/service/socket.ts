@@ -11,10 +11,18 @@ export const getSocket = () => {
       autoConnect: true,
       withCredentials: true,
       auth: { token },
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: 10,
     });
   }
   return socket;
+};
+
+export const resetSocket = () => {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+    localStorage.removeItem("chat_session_id");
+  }
 };

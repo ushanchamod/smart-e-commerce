@@ -23,8 +23,8 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { OpenAIEmbeddings } from "@langchain/openai";
 import { RunnableConfig } from "@langchain/core/runnables";
+import { embeddings } from "../../../embeddingService";
 
 const CLIENT_URL = process.env.CORS_ORIGIN_CLIENT || "http://localhost:3000";
 
@@ -34,8 +34,6 @@ const formatCurrency = (amount: string | number) => {
     currency: "LKR",
   }).format(Number(amount));
 };
-
-const embeddings = new OpenAIEmbeddings();
 
 export const getSomeProducts = tool(
   async () => {
@@ -71,13 +69,11 @@ export const getSomeProducts = tool(
   {
     name: "get-random-product-suggestions",
     description: `
-    Fetch 5 RANDOM products from the catalog. 
-    Use this tool ONLY when the user asks specifically for:
-    - "Show me something interesting"
-    - "What do you have?"
-    - "Give me some gift ideas" (without specific criteria)
+    USE CASE: Open-ended discovery / Window shopping.
+    TRIGGER: User asks "Show me something interesting", "What do you recommend?", or "Give me gift ideas" WITHOUT specific criteria.
     
-    DO NOT use this if the user asks for a specific category like "flowers" (use search-products instead).
+    RESTRICTIONS:
+    - DO NOT use if the user specifies a category (e.g., "flowers"), color, or price. Use 'search-products' for those.
     `,
     schema: z.object({}),
   }
@@ -129,12 +125,12 @@ export const getSpecificProduct = tool(
   {
     name: "get-product-details",
     description: `
-    Fetch full details for a SINGLE product using its numeric ID.
+    USE CASE: Fetching full details for a SPECIFIC product by its ID.
+    TRIGGER: User clicks a product link or asks "Tell me more about the red shoes" (where you already know the ID from context).
     
     CRITICAL RULES:
-    1. ONLY use this tool if you have an actual 'id' from a previous 'search-products' or 'list-products' result.
-    2. DO NOT guess product IDs (e.g., do not try ID 1, 2, 3 arbitrarily).
-    3. Use this when the user asks "Tell me more about the red shoes" or clicks a product link.
+    1. You MUST have a valid numeric 'productId' from a previous search result.
+    2. DO NOT GUESS IDs. If you don't know the ID, use 'search-products' to find it first.
     `,
     schema: z.object({
       productId: z
@@ -152,29 +148,24 @@ export const searchProducts = tool(
       return "Error: Search query cannot be empty.";
     }
 
-    const trimmedQuery = query.trim();
-    const searchPattern = `%${trimmedQuery}%`;
-
     try {
-      const searchConditions = or(
-        ilike(productsTable.name, searchPattern),
-        ilike(productsTable.description, searchPattern),
-        ilike(categoriesTable.name, searchPattern)
-      );
+      const queryVector = await embeddings.embedQuery(query.trim());
 
-      const conditions = [searchConditions];
-      if (minPrice !== undefined)
+      const similarity = sql<number>`1 - (${cosineDistance(
+        productsTable.embedding,
+        queryVector
+      )})`;
+
+      const conditions = [];
+
+      conditions.push(gt(similarity, 0.3));
+
+      if (minPrice !== undefined) {
         conditions.push(gte(productsTable.price, minPrice.toString()));
-      if (maxPrice !== undefined)
+      }
+      if (maxPrice !== undefined) {
         conditions.push(lte(productsTable.price, maxPrice.toString()));
-
-      const scoreCalculation = sql`
-        CASE 
-          WHEN ${productsTable.name} ILIKE ${searchPattern} THEN 10
-          WHEN ${categoriesTable.name} ILIKE ${searchPattern} THEN 5
-          ELSE 2
-        END
-      `;
+      }
 
       const products = await db
         .select({
@@ -184,7 +175,7 @@ export const searchProducts = tool(
           description: productsTable.description,
           image: productsTable.image,
           category: categoriesTable.name,
-          score: scoreCalculation.as("relevance_score"),
+          score: similarity,
         })
         .from(productsTable)
         .innerJoin(
@@ -192,38 +183,83 @@ export const searchProducts = tool(
           eq(productsTable.categoryId, categoriesTable.categoryId)
         )
         .where(and(...conditions))
-        .orderBy(desc(scoreCalculation))
-        .limit(10);
+        .orderBy(desc(similarity))
+        .limit(8);
 
       if (products.length === 0) {
-        return "No products found matching that query and price range.";
+        console.log(
+          "⚠️ Vector search yielded 0 results, attempting text fallback..."
+        );
+
+        const textConditions = [
+          or(
+            ilike(productsTable.name, `%${query}%`),
+            ilike(categoriesTable.name, `%${query}%`)
+          ),
+        ];
+        if (maxPrice)
+          textConditions.push(lte(productsTable.price, maxPrice.toString()));
+
+        const fallbackProducts = await db
+          .select({
+            id: productsTable.productId,
+            name: productsTable.name,
+            price: productsTable.price,
+            category: categoriesTable.name,
+          })
+          .from(productsTable)
+          .innerJoin(
+            categoriesTable,
+            eq(productsTable.categoryId, categoriesTable.categoryId)
+          )
+          .where(and(...textConditions))
+          .limit(5);
+
+        if (fallbackProducts.length === 0) {
+          return "No products found matching that query and price range.";
+        }
+
+        const formattedFallback = fallbackProducts.map((p) => ({
+          ...p,
+          price: formatCurrency(p.price),
+          product_path: `${CLIENT_URL}/product/${p.id}`,
+          match_type: "keyword_fallback",
+        }));
+
+        return JSON.stringify(formattedFallback);
       }
 
       const formattedProducts = products.map((p) => ({
         ...p,
         price: formatCurrency(p.price),
         product_path: `${CLIENT_URL}/product/${p.id}`,
+        relevance: Math.round((p.score as number) * 100) + "%",
       }));
 
       return JSON.stringify(formattedProducts);
     } catch (error) {
-      console.error("Tool Error:", error);
-      return "An error occurred while accessing the product database.";
+      console.error("Tool Error (Vector Search):", error);
+      return "An error occurred while performing product search.";
     }
   },
   {
     name: "search-products",
     description: `
-    Search for products using natural language keywords (e.g., "birthday gift", "red roses").
-    - Handles synonyms and stemming automatically.
-    - Supports optional minPrice and maxPrice filters.
-    - Returns a ranked list of relevant products.
+    USE CASE: The PRIMARY search tool. Use whenever user provides specific criteria (keywords, category, color, or price).
+    
+    PARAMETER EXTRACTION RULES:
+    1. 'query': The search keywords (e.g., "birthday gift", "red roses"). REMOVE price mentions from this string.
+    2. 'minPrice' / 'maxPrice': Extract numeric budget limits here.
+    
+    EXAMPLE:
+    User: "Show me watches under 5000"
+    Tool Input: { "query": "watches", "maxPrice": 5000 }
     `,
     schema: z.object({
       query: z
         .string()
         .describe(
-          "The search keywords. Can be a category, name, or description."
+          "The user's search intent. Can be abstract (e.g. 'anniversary') or specific."
         ),
       minPrice: z.number().optional().describe("Minimum price filter (LKR)"),
       maxPrice: z.number().optional().describe("Maximum price filter (LKR)"),
@@ -268,9 +304,8 @@ export const getAllCategories = tool(
   {
     name: "get-all-categories",
     description: `
-    Fetch the list of product categories and the number of available items in each.
-    - Use this when the user asks "What do you sell?" or "Show me your collections."
-    - Use this to guide the user towards categories that actually have stock.
+    USE CASE: Fetch a list of all product departments/collections.
+    TRIGGER: User asks "What do you sell?", "Show me your collections", or "Do you have electronics?".
     `,
     schema: z.object({}),
   }
@@ -323,7 +358,13 @@ export const readOrders = tool(
   },
   {
     name: "readOrders",
-    description: "Retrieve a list of orders for the authenticated user.",
+    description: `
+    USE CASE: Check the status of a specific order.
+    
+    MANDATORY REQUIREMENT:
+    - You MUST provide a specific 'orderId'.
+    - If the user asks "Show my orders" WITHOUT providing an ID, DO NOT call this tool. Instead, reply asking for the Order ID.
+    `,
     schema: z.object({
       orderId: z.string().describe("The unique identifier of the order"),
     }),
@@ -363,12 +404,12 @@ export const lookupPolicy = tool(
   {
     name: "consult_policy_handbook",
     description: `
-    The OFFICIAL knowledge base for company policies (Returns, Delivery, Payments, Privacy).
+    USE CASE: Retrieve official business policies (Shipping, Returns, Privacy, Payments).
+    TRIGGER: User asks "How do I return?", "Is it safe?", "Delivery time?".
     
-    RULES FOR AI:
-    1. Use this tool whenever a user asks about business rules or logistics.
-    2. TRUST ONLY the output of this tool. 
-    3. IF the tool returns "No specific policy found", DO NOT GUESS. Do not make up a policy based on general e-commerce knowledge. Just say you don't know and suggest contacting support.
+    RESTRICTIONS:
+    - Treat this tool as the single source of truth for rules.
+    - If this tool returns "No policy found", admit you don't know. Do not hallucinate policies.
     `,
     schema: z.object({
       query: z

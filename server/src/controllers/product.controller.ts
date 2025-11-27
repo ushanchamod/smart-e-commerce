@@ -6,6 +6,7 @@ import { db } from "../db";
 import { categoriesTable, productsTable } from "../db/schema";
 import { createProductSchemaType } from "../validators/product.dto";
 import { desc, eq, ilike, or, sql } from "drizzle-orm";
+import { generateProductVector } from "../service/embeddingService";
 
 export const CreateProduct = async (
   req: AuthenticatedRequest,
@@ -30,6 +31,13 @@ export const CreateProduct = async (
   }
 
   try {
+    const embedding = await generateProductVector(
+      name,
+      description || "",
+      existingCategory[0].name,
+      existingCategory[0].description || ""
+    );
+
     const result = await db
       .insert(productsTable)
       .values({
@@ -38,6 +46,7 @@ export const CreateProduct = async (
         description,
         image,
         categoryId: parseInt(categoryId),
+        embedding,
       })
       .returning();
 

@@ -1,18 +1,24 @@
-import { StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
+import { StateGraph, START, END } from "@langchain/langgraph";
 import { MessagesState } from "./utils/state";
 import { llmCall, toolNode, shouldContinue } from "./utils/nodes";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { pool } from "../../db";
 
-export async function createAgent() {
-  const checkpointer = new PostgresSaver(pool);
-  await checkpointer.setup();
+const checkpointer = new PostgresSaver(pool);
 
-  return new StateGraph(MessagesState)
-    .addNode("llmCall", llmCall)
-    .addNode("toolNode", toolNode)
-    .addEdge(START, "llmCall")
-    .addConditionalEdges("llmCall", shouldContinue, ["toolNode", END])
-    .addEdge("toolNode", "llmCall")
-    .compile({ checkpointer });
+const workflow = new StateGraph(MessagesState)
+  .addNode("llmCall", llmCall)
+  .addNode("toolNode", toolNode)
+  .addEdge(START, "llmCall")
+  .addConditionalEdges("llmCall", shouldContinue, ["toolNode", END])
+  .addEdge("toolNode", "llmCall");
+
+let runnable: any = null;
+
+export async function getRunnable() {
+  if (!runnable) {
+    await checkpointer.setup();
+    runnable = workflow.compile({ checkpointer });
+  }
+  return runnable;
 }

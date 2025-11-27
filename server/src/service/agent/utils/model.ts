@@ -13,7 +13,8 @@ export const model = new ChatOpenAI({
   temperature: 0,
   modelName: "gpt-4o-mini",
   apiKey: API_KEY.trim(),
-  timeout: 10000,
+  streaming: true,
+  timeout: 120000,
 });
 
 export const modelWithTools = model.bindTools(tools);

@@ -5,7 +5,7 @@ dotenv.config();
 import { createOwnerIfNotExists, testDbConnection } from "./db";
 import http from "http";
 import { Server } from "socket.io";
-import { createAgent } from "./service/agent/agent";
+import { getRunnable } from "./service/agent/agent";
 import { HumanMessage } from "@langchain/core/messages";
 import z from "zod";
 import { JWTPayloadType } from "./dto";
@@ -58,72 +58,103 @@ const startServer = async () => {
         return;
       }
 
-      socket.on("chatMessage", async (data: { message: string }) => {
-        const userMessage = data.message || "";
-        const agent = await createAgent();
+      const UI_WIDGET_TOOLS = [
+        "search-products",
+        "get-random-product-suggestions",
+        "get-product-details",
+      ];
 
-        let configurable = {};
+      socket.on(
+        "chatMessage",
+        async (data: { message: string; session_id: string }) => {
+          const userMessage = data.message || "";
+          const sessionId = data.session_id || "";
+          const agent = await getRunnable();
 
-        if (user) {
-          configurable = {
-            user_id: user.userId,
-            user_email: user.email,
-            thread_id: user.userId,
-          };
-        } else {
-          configurable = {
-            thread_id: socket.id,
-          };
-        }
+          let configurable = {};
 
-        try {
-          console.log(`📩 Processing: ${userMessage}`);
+          if (user) {
+            configurable = {
+              user_id: user.userId,
+              user_email: user.email,
+              thread_id: sessionId || socket.id,
+            };
+          } else {
+            configurable = {
+              thread_id: sessionId || socket.id,
+            };
+          }
 
-          const eventStream = agent.streamEvents(
-            { messages: [new HumanMessage(userMessage)] },
-            {
-              version: "v2",
-              configurable,
-              context: { userName: "John Smith" },
-            }
-          );
+          try {
+            console.log(`📩 Processing: ${userMessage}`);
 
-          for await (const event of eventStream) {
-            if (event.event === "on_chat_model_stream") {
-              const token = event.data.chunk?.content;
+            const eventStream = await agent.streamEvents(
+              { messages: [new HumanMessage(userMessage)], llmCalls: 0 },
+              {
+                version: "v2",
+                configurable,
+                context: { userName: "John Smith" },
+              }
+            );
 
-              if (token && typeof token === "string" && token.length > 0) {
-                socket.emit("chatStream", {
-                  chunk: token,
-                });
+            for await (const event of eventStream) {
+              if (event.event === "on_chat_model_stream") {
+                const chunk = event.data.chunk;
+                const token =
+                  chunk && typeof chunk.content === "string"
+                    ? chunk.content
+                    : "";
+
+                if (token.length > 0) {
+                  socket.emit("chatStream", {
+                    chunk: token,
+                  });
+                }
+              }
+
+              if (event.event === "on_tool_end") {
+                console.log(`🛠️ Tool finished: ${event.name}`);
+
+                if (UI_WIDGET_TOOLS.includes(event.name)) {
+                  try {
+                    // 1. Try to parse the output as JSON (for the Carousel)
+                    const toolData = JSON.parse(event.data.output);
+
+                    // 2. Check if it's an array (valid product list) or just an object
+                    const dataToSend = Array.isArray(toolData)
+                      ? toolData
+                      : [toolData];
+
+                    socket.emit("suggestedProducts", {
+                      toolName: event.name,
+                      data: dataToSend,
+                    });
+                  } catch (e) {
+                    // 3. FALLBACK: If JSON parse fails (e.g., tool returned "No products found")
+                    // Send it as a normal text chunk so the user sees the explanation.
+                    console.log(
+                      `⚠️ Tool output was not JSON, sending as text: ${event.data.output}`
+                    );
+                    socket.emit("chatStream", {
+                      chunk: `\n\n*System Note:* ${event.data.output}\n\n`,
+                    });
+                  }
+                }
               }
             }
 
-            // if (event.event === "on_tool_end") {
-            if (event.event === "on_tool_end") {
-              console.log(`🛠️ Tool finished: ${event.name}`);
+            socket.emit("chatEnd", { status: "success" });
+            console.log("✅ Stream finished");
+          } catch (error: any) {
+            console.error("❌ Error in agent execution:", error.message);
 
-              // You can filter specifically for your product tool name here
-              // if (event.name === "fetch_product_list") {
-              //   socket.emit("suggestedProducts", {
-              //     toolName: event.name,
-              //     data: event.data.output,
-              //   });
-              // }
-            }
+            socket.emit("chatEnd", {
+              status: "error",
+              error: error.message,
+            });
           }
-
-          socket.emit("chatEnd", { status: "success" });
-          console.log("✅ Stream finished");
-        } catch (error: any) {
-          console.error("❌ Error in agent execution:", error.message);
-
-          socket.emit("chatEnd", {
-            status: "error",
-            error: error.message,
-          });
         }
-      });
+      );
 
       socket.on("disconnect", () => {
         console.log(`🔌 Client disconnected: ${socket.id}`);
