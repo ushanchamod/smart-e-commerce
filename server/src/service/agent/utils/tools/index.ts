@@ -4,6 +4,7 @@ import {
   getSomeProducts,
   getSpecificProduct,
   lookupPolicy,
+  readOrders,
   searchProducts,
 } from "./tools";
 
@@ -13,6 +14,7 @@ export const tools = [
   searchProducts,
   getAllCategories,
   lookupPolicy,
+  readOrders,
 ];
 
 export const toolsByName: Record<string, StructuredTool> = Object.fromEntries(

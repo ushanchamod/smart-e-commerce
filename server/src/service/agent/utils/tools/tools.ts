@@ -6,6 +6,8 @@ import { db } from "../../../../db";
 import {
   categoriesTable,
   documentsTable,
+  orderItemsTable,
+  ordersTable,
   productsTable,
 } from "../../../../db/schema";
 import {
@@ -22,6 +24,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { RunnableConfig } from "@langchain/core/runnables";
 
 const CLIENT_URL = process.env.CORS_ORIGIN_CLIENT || "http://localhost:3000";
 
@@ -270,6 +273,60 @@ export const getAllCategories = tool(
     - Use this to guide the user towards categories that actually have stock.
     `,
     schema: z.object({}),
+  }
+);
+
+export const readOrders = tool(
+  async (params, runOpts: RunnableConfig) => {
+    const userId = runOpts.configurable?.user_id;
+    const { orderId } = params;
+
+    if (!userId) {
+      return "Error: User not authenticated. Cannot access orders.";
+    }
+
+    if (!orderId) {
+      return "Error: Order ID cannot be empty.";
+    }
+
+    try {
+      const order = await db
+        .select({
+          orderId: ordersTable.orderId,
+          address: ordersTable.address,
+          totalAmount: ordersTable.totalAmount,
+          paymentMethod: ordersTable.paymentMethod,
+          status: ordersTable.status,
+          createdAt: ordersTable.createdAt,
+        })
+        .from(ordersTable)
+        .leftJoin(
+          orderItemsTable,
+          eq(ordersTable.orderId, orderItemsTable.orderId)
+        )
+        .where(
+          and(
+            eq(ordersTable.userId, Number(userId)),
+            eq(ordersTable.orderId, Number(orderId))
+          )
+        )
+        .groupBy(ordersTable.orderId);
+      if (order.length === 0) {
+        return `Order with ID ${orderId} not found for this user.`;
+      }
+
+      return JSON.stringify(order[0]);
+    } catch (error) {
+      console.error("Tool Error (readOrders):", error);
+      return "An error occurred while accessing the order database.";
+    }
+  },
+  {
+    name: "readOrders",
+    description: "Retrieve a list of orders for the authenticated user.",
+    schema: z.object({
+      orderId: z.string().describe("The unique identifier of the order"),
+    }),
   }
 );
 

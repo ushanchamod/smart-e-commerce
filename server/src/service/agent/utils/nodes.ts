@@ -59,25 +59,58 @@ export async function llmCall(state: MessagesStateType) {
   };
 }
 
-// toolNode
 export async function toolNode(
   state: MessagesStateType,
   config: RunnableConfig
 ) {
   const last = state.messages.at(-1);
 
+  // Safety check: ensure the last message came from the AI
   if (!last || !isAIMessage(last)) {
     return { messages: [] };
   }
 
   const outputs: ToolMessage[] = [];
 
+  // Iterate over every tool call requested by the LLM
   for (const toolCall of last.tool_calls ?? []) {
-    const tool = toolsByName[toolCall.name];
-    const observation = await tool.invoke(toolCall, config);
-    outputs.push(observation);
+    try {
+      // 1. Find the tool
+      const tool = toolsByName[toolCall.name];
+      if (!tool) {
+        throw new Error(
+          `Tool '${toolCall.name}' not found in toolsByName map.`
+        );
+      }
+
+      // 2. Invoke the tool SAFEGUARDED
+      // IMPORTANT: Pass 'toolCall.args', not 'toolCall'
+      const observation = await tool.invoke(toolCall.args, config);
+
+      // 3. Success: Add the result
+      outputs.push(
+        new ToolMessage({
+          tool_call_id: toolCall.id!, // CRITICAL: Links response to request
+          content: JSON.stringify(observation), // Ensure string format
+          name: toolCall.name,
+        })
+      );
+    } catch (error: any) {
+      // 4. ERROR HANDLING: Capture the crash and report it to LLM
+      console.error(`❌ Tool execution failed for ${toolCall.name}:`, error);
+
+      outputs.push(
+        new ToolMessage({
+          tool_call_id: toolCall.id!, // We must still respond to this ID!
+          content: `Error: The tool failed to execute. Details: ${error.message}. Please apologize to the user.`,
+          name: toolCall.name,
+          additional_kwargs: { error: true },
+        })
+      );
+    }
   }
 
+  // Return the list of tool results (successes + handled errors)
   return { messages: outputs };
 }
 

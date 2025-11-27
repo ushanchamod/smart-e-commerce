@@ -26,6 +26,10 @@ export const usersTable = pgTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
     role: varchar("role", { length: 20 }).notNull(),
+    threadId: varchar("thread_id", { length: 255 })
+      .notNull()
+      .unique()
+      .default(sql`gen_random_uuid()`),
   },
   (table) => [
     index("users_email_idx").on(table.email),
@@ -69,7 +73,10 @@ export const ordersTable = pgTable(
       .notNull(),
     address: text("address").notNull(),
     totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
-    status: varchar("status", { length: 20 }).default("PENDING").notNull(),
+    paymentMethod: varchar("payment_method", { length: 20 })
+      .default("cod")
+      .notNull(),
+    status: varchar("status", { length: 50 }).default("PENDING").notNull(),
     createdAt: timestamp("created_at")
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),

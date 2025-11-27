@@ -1,75 +1,151 @@
-import { ShoppingBag } from "lucide-react";
+import { ShoppingBag, Check, Loader2, ImageOff } from "lucide-react";
 import type { Product } from "../types";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAxios } from "../service/useAxios";
+import { useState } from "react";
 
 interface ProductCardProps {
   product: Product;
-  onAddToCart?: (product: Product) => void;
 }
 
-export const ProductCard = ({ product, onAddToCart }: ProductCardProps) => {
+export const ProductCard = ({ product }: ProductCardProps) => {
   const navigate = useNavigate();
+  const { fetchData } = useAxios();
+  const queryClient = useQueryClient();
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
-  const handleAddToCart = () => {
-    if (onAddToCart) onAddToCart(product);
+  // Handle Add to Cart
+  const handleAddToCart = async (): Promise<void> => {
+    await fetchData(`/orders/add-to-cart/${product.id}`, "PUT", {
+      quantity: 1,
+    });
   };
 
-  // Support both string or array of image URLs
+  const { mutate, isPending } = useMutation({
+    mutationFn: handleAddToCart,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cart"] });
+      // Show success state on button for 2 seconds
+      setIsSuccess(true);
+      setTimeout(() => setIsSuccess(false), 2000);
+    },
+    onError: (error) => {
+      console.error("Error adding product to cart:", error);
+      // Ideally trigger a toast notification here
+    },
+  });
+
+  // Image Logic: Handle array/string and fallbacks
   const imageUrl = Array.isArray(product.images)
     ? product.images[0]
     : product.images;
 
   return (
     <motion.div
-      whileHover={{ scale: 1.02 }}
-      transition={{ duration: 0.2 }}
-      className="bg-white rounded-2xl border shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -5 }}
+      className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden cursor-pointer group flex flex-col h-full"
       onClick={() => navigate(`/product/${product.id}`)}
     >
-      {/* IMAGE */}
-      <div className="relative w-full h-56 overflow-hidden bg-gray-100">
-        <motion.img
-          initial={{ scale: 1.1 }}
-          animate={{ scale: 1 }}
-          whileHover={{ scale: 1.05 }}
-          transition={{ duration: 0.4 }}
-          src={imageUrl}
-          alt={product.name}
-          className="w-full h-full object-cover"
-        />
+      {/* IMAGE CONTAINER */}
+      <div className="relative w-full aspect-4/3 overflow-hidden bg-gray-50">
+        {!imgError ? (
+          <motion.img
+            whileHover={{ scale: 1.05 }}
+            transition={{ duration: 0.4 }}
+            src={imageUrl}
+            alt={product.name}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+            <ImageOff size={32} />
+            <span className="text-xs mt-2">No Image</span>
+          </div>
+        )}
 
-        {/* Hover Overlay */}
-        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition" />
+        {/* Category Badge */}
+        <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-semibold text-gray-700 shadow-sm">
+          {product.category}
+        </div>
       </div>
 
       {/* CONTENT */}
-      <div className="p-5">
-        <h3 className="font-semibold text-lg line-clamp-1 group-hover:text-black">
-          {product.name}
-        </h3>
-        <p className="text-gray-500 text-sm mb-3 line-clamp-1">
-          {product.category}
-        </p>
-
-        {/* PRICE */}
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-xl font-bold text-black">
-            {new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "LKR",
-            }).format(product.price / 100)}
-          </span>
+      <div className="p-5 flex flex-col grow">
+        <div className="grow">
+          <h3 className="font-bold text-lg text-gray-900 line-clamp-1 mb-1 group-hover:text-indigo-600 transition-colors">
+            {product.name}
+          </h3>
+          <p className="text-gray-500 text-sm line-clamp-2 leading-relaxed">
+            {/* Assuming product might have description, otherwise fallback */}
+            Excellent quality {product.category.toLowerCase()} for your needs.
+          </p>
         </div>
 
-        {/* BUTTON */}
-        <button
-          onClick={handleAddToCart}
-          className="w-full bg-black text-white py-2.5 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-900 transition-all active:scale-95"
-        >
-          <ShoppingBag size={18} />
-          Add to Cart
-        </button>
+        {/* PRICE & ACTION */}
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50">
+          <span className="text-xl font-bold text-gray-900">
+            {new Intl.NumberFormat("en-LK", {
+              style: "currency",
+              currency: "LKR",
+              minimumFractionDigits: 0,
+            }).format(product.price)}
+          </span>
+
+          <button
+            disabled={isPending || isSuccess}
+            aria-label="Add to cart"
+            onClick={(e) => {
+              e.stopPropagation();
+              mutate();
+            }}
+            // FIXED: w-10 h-10 makes it a fixed square. No text.
+            className={`
+    h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-300
+    ${
+      isSuccess
+        ? "bg-green-500 text-white"
+        : "bg-black text-white hover:bg-gray-800 active:scale-95"
+    }
+  `}
+          >
+            <AnimatePresence mode="wait">
+              {isPending ? (
+                <motion.div
+                  key="loading"
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                >
+                  <Loader2 size={15} className="animate-spin" />
+                </motion.div>
+              ) : isSuccess ? (
+                <motion.div
+                  key="success"
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                >
+                  <Check size={15} />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="default"
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                >
+                  <ShoppingBag size={15} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </button>
+        </div>
       </div>
     </motion.div>
   );

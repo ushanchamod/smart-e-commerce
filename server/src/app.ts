@@ -1,6 +1,11 @@
 import express, { Request, Response } from "express";
 import cookieParser from "cookie-parser";
-import { authRouter, categoryRouter, productRouter } from "./routes";
+import {
+  authRouter,
+  categoryRouter,
+  orderRouter,
+  productRouter,
+} from "./routes";
 import cors from "cors";
 
 const app = express();
@@ -31,5 +36,6 @@ app.get("/", (req: Request, res: Response) => {
 app.use("/auth", authRouter);
 app.use("/categories", categoryRouter);
 app.use("/products", productRouter);
+app.use("/orders", orderRouter);
 
 export default app;

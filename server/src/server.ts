@@ -25,19 +25,18 @@ const startServer = async () => {
 
     const io = new Server(httpServer, {
       cors: {
-        origin: ["http://localhost:3000", "http://localhost:5173"],
+        origin: ["http://localhost:5173"],
         methods: ["GET", "POST"],
         credentials: true,
       },
     });
 
     io.on("connection", (socket) => {
-      const authHeader = socket.handshake.headers["authorization"];
+      const token = socket.handshake.auth.token;
       let user: JWTPayloadType | null = null;
 
       try {
-        if (authHeader && authHeader.startsWith("Bearer ")) {
-          const token = authHeader.split(" ")[1];
+        if (token) {
           user = jwt.verify(
             token,
             process.env.JWT_SECRET as string
@@ -69,7 +68,7 @@ const startServer = async () => {
           configurable = {
             user_id: user.userId,
             user_email: user.email,
-            thread_id: socket.id,
+            thread_id: user.userId,
           };
         } else {
           configurable = {
@@ -100,6 +99,7 @@ const startServer = async () => {
               }
             }
 
+            // if (event.event === "on_tool_end") {
             if (event.event === "on_tool_end") {
               console.log(`🛠️ Tool finished: ${event.name}`);
 
