@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import Cart from "./Cart";
 import { useUI } from "../lib/uiContext";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ShoppingCart, Menu, X, Store } from "lucide-react";
+import { useAuthStore } from "../store/userAuthStore";
+import { useAxios } from "../service/useAxios";
 
 // Move static data outside to prevent re-creation on render
 const NAV_LINKS = [
@@ -11,6 +13,9 @@ const NAV_LINKS = [
 ];
 
 function Navbar() {
+  const { fetchData } = useAxios();
+  const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
   const { cartOpen, setCartOpen } = useUI();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
@@ -63,24 +68,58 @@ function Navbar() {
           {/* Actions: Cart & Mobile Menu Toggle */}
           <div className="flex items-center gap-4">
             {/* Cart Button */}
-            <button
-              onClick={() => setCartOpen(true)}
-              className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors group"
-              aria-label="Open Cart"
-            >
-              <ShoppingCart
-                size={22}
-                className="group-hover:text-indigo-600 transition-colors"
-              />
-              {cartItemCount > 0 ? (
-                <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-red-500 rounded-full border-2 border-white">
-                  {cartItemCount}
-                </span>
-              ) : (
-                // Optional: Show a subtle dot if empty, or nothing
-                <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-              )}
-            </button>
+            {user?.id && (
+              <button
+                onClick={() => {
+                  if (!user?.id) {
+                    return navigate("/auth/login");
+                  }
+                  setCartOpen(true);
+                }}
+                className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors group"
+                aria-label="Open Cart"
+              >
+                <ShoppingCart
+                  size={22}
+                  className="group-hover:text-indigo-600 transition-colors"
+                />
+                {cartItemCount > 0 ? (
+                  <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-red-500 rounded-full border-2 border-white">
+                    {cartItemCount}
+                  </span>
+                ) : (
+                  // Optional: Show a subtle dot if empty, or nothing
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                )}
+              </button>
+            )}
+
+            {!user?.id ? (
+              <NavLink
+                to="/auth/login"
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition"
+              >
+                Login
+              </NavLink>
+            ) : (
+              // logout button
+              <button
+                onClick={async () => {
+                  try {
+                    await fetchData("/auth/logout", "POST");
+                    localStorage.removeItem("token");
+                    localStorage.removeItem("chat_session_id");
+                    useAuthStore.getState().logout();
+                  } catch (err) {
+                    console.error("Logout failed", err);
+                    alert("Logout failed. Please try again.");
+                  }
+                }}
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition"
+              >
+                Logout
+              </button>
+            )}
 
             {/* Mobile Menu Button */}
             <button

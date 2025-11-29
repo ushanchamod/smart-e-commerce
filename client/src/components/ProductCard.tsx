@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAxios } from "../service/useAxios";
 import { useState } from "react";
+import { useAuthStore } from "../store/userAuthStore";
 
 interface ProductCardProps {
   product: Product;
@@ -14,14 +15,30 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   const navigate = useNavigate();
   const { fetchData } = useAxios();
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+
   const [isSuccess, setIsSuccess] = useState(false);
   const [imgError, setImgError] = useState(false);
 
   // Handle Add to Cart
   const handleAddToCart = async (): Promise<void> => {
-    await fetchData(`/orders/add-to-cart/${product.id}`, "PUT", {
-      quantity: 1,
-    });
+    if (!user) {
+      // ask compomation to login
+      const confirmed = confirm(
+        "You need to be logged in to add items to the cart. Go to login page?"
+      );
+      if (confirmed) {
+        navigate("/auth/login");
+      }
+      throw new Error("User not logged in");
+    }
+    try {
+      await fetchData(`/orders/add-to-cart/${product.id}`, "PUT", {
+        quantity: 1,
+      });
+    } catch (error) {
+      console.error("Error adding product to cart:", error);
+    }
   };
 
   const { mutate, isPending } = useMutation({

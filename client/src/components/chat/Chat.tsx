@@ -9,10 +9,13 @@ import {
   ChevronRight,
   Zap,
   ExternalLink,
+  Minimize2,
+  Maximize2,
 } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { getSocket, resetSocket } from "../../service/socket";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
 // --- Interfaces ---
 export interface Product {
@@ -43,12 +46,15 @@ const SUGGESTED_QUESTIONS = [
 
 const Chat = () => {
   const socket = getSocket();
+  const navigation = useNavigate();
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(socket.connected);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [isStartTyping, setIsStartTyping] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +79,7 @@ const Chat = () => {
   useEffect(() => {
     scrollToBottom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, isTyping, isOpen]);
+  }, [messages, isOpen, isStartTyping]);
 
   // --- Focus Input on Open ---
   useEffect(() => {
@@ -217,6 +223,7 @@ const Chat = () => {
   }, [socket]);
 
   const sendMessage = (text: string) => {
+    setIsStartTyping((prv) => !prv);
     if (!text.trim() || !isConnected) return;
 
     setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
@@ -268,13 +275,15 @@ const Chat = () => {
             exit={{ scale: 0, opacity: 0 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => setIsOpen(true)}
-            className="fixed bottom-6 right-6 z-50 p-0 w-16 h-16 bg-black text-white rounded-full shadow-2xl hover:shadow-indigo-500/40 transition-all duration-300 flex items-center justify-center group"
+            onClick={() => {
+              setIsOpen(true);
+              setFullScreen(false); // Start small
+            }}
+            className="fixed bottom-6 right-6 z-50 w-16 h-16 bg-black text-white rounded-full shadow-2xl flex items-center justify-center group"
           >
-            {/* ... Icon content ... */}
-            <div className="absolute inset-0 rounded-full bg-linear-to-tr from-indigo-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="absolute inset-0 rounded-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="relative z-10">
-              <MessageCircle size={32} strokeWidth={1.5} />
+              <MessageCircle size={32} />
               {isConnected && (
                 <span className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-black rounded-full" />
               )}
@@ -290,7 +299,12 @@ const Chat = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="fixed bottom-4 right-4 z-50 w-[calc(100vw-32px)] sm:w-[400px] h-[600px] max-h-[calc(100vh-32px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans"
+            // if fullScreen is true, center chat in middle of screen with cover more area
+            className={`fixed ${
+              fullScreen
+                ? "inset-0 m-4 w-[calc(100vw-50px)] h-[calc(100vh-50px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans"
+                : "bottom-4 right-4 w-[calc(100vw-32px)] sm:w-[400px] h-[600px] max-h-[calc(100vh-32px)]"
+            } z-50 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans`}
           >
             {/* Header */}
             <div className="bg-white/90 backdrop-blur-md p-4 border-b border-gray-100 flex justify-between items-center z-10 sticky top-0">
@@ -317,6 +331,16 @@ const Chat = () => {
               </div>
 
               <div className="flex gap-1">
+                <button
+                  onClick={() => setFullScreen(!fullScreen)}
+                  className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  {fullScreen ? (
+                    <Minimize2 size={18} />
+                  ) : (
+                    <Maximize2 size={18} />
+                  )}
+                </button>
                 <button
                   onClick={handleClearChat}
                   className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
@@ -402,11 +426,11 @@ const Chat = () => {
                         <div className="flex gap-3 overflow-x-auto pb-4 pt-1 px-1 scrollbar-hide snap-x">
                           {msg.products.map((product, i) => (
                             <div
-                              // FIXED: Use Index as fallback, NEVER Math.random()
                               key={product.id || i}
                               onClick={() => {
                                 if (product.product_path) {
-                                  window.open(product.product_path, "_blank");
+                                  setFullScreen(false);
+                                  navigation(product.product_path);
                                 }
                               }}
                               className="min-w-[180px] max-w-[180px] bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group cursor-pointer"

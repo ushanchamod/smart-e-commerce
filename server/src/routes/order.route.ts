@@ -8,13 +8,19 @@ import {
   GetAllOrder,
   GetMyCart,
   GetOrderById,
+  UpdateOrderStatus,
 } from "../controllers";
-import { addToCartSchema, createOrderSchema } from "../validators/order.dto";
+import {
+  addToCartSchema,
+  createOrderSchema,
+  updateOrderStatusSchema,
+} from "../validators/order.dto";
 
 const router = Router();
 
 router.post("/", useGuard, validateData(createOrderSchema), CreateOrder);
 router.get("/", useGuard, GetAllOrder);
+router.get("/my-cart", useGuard, GetMyCart);
 router.get("/:id", useGuard, GetOrderById);
 
 router.put(
@@ -24,8 +30,13 @@ router.put(
   AddToCart
 );
 
-router.delete("/my-cart/:itemId", useGuard, DeleteCartItem);
+router.patch(
+  "/update-order-status/:orderId",
+  useGuard,
+  validateData(updateOrderStatusSchema),
+  UpdateOrderStatus
+);
 
-router.get("/my-cart", useGuard, GetMyCart);
+router.delete("/my-cart/:itemId", useGuard, DeleteCartItem);
 
 export { router as orderRouter };

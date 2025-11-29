@@ -11,7 +11,10 @@ import {
 } from "../db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { JWTPayloadType } from "../dto";
-import { createOrderSchemaType } from "../validators/order.dto";
+import {
+  createOrderSchemaType,
+  updateOrderStatusSchemaType,
+} from "../validators/order.dto";
 
 export const AddToCart = async (req: AuthenticatedRequest, res: Response) => {
   const { productId } = req.params;
@@ -190,6 +193,36 @@ export const CreateOrder = async (req: AuthenticatedRequest, res: Response) => {
       .where(eq(cartItemsTable.userId, user.userId));
 
     return sendSuccess(res, null, "Order created successfully");
+  } catch (error) {
+    console.log(error);
+    return sendError(res, "INTERNAL_SERVER_ERROR", 500);
+  }
+};
+
+export const UpdateOrderStatus = async (
+  req: AuthenticatedRequest,
+  res: Response
+) => {
+  const { orderId } = req.params;
+  const { status } = <updateOrderStatusSchemaType>req.body;
+
+  try {
+    const order = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.orderId, Number(orderId)))
+      .limit(1);
+
+    if (order.length === 0) {
+      return sendError(res, "ORDER_NOT_FOUND", 404);
+    }
+
+    const updatedOrder = await db
+      .update(ordersTable)
+      .set({ status })
+      .where(eq(ordersTable.orderId, Number(orderId)))
+      .returning();
+    return sendSuccess(res, updatedOrder, "Order status updated successfully");
   } catch (error) {
     console.log(error);
     return sendError(res, "INTERNAL_SERVER_ERROR", 500);

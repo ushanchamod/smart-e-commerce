@@ -12,3 +12,11 @@ export const createOrderSchema = z.object({
 });
 
 export type createOrderSchemaType = z.infer<typeof createOrderSchema>;
+
+export const updateOrderStatusSchema = z.object({
+  status: z.enum(["PENDING", "PAID", "SHIPPED", "DELIVERED", "CANCELLED"]),
+});
+
+export type updateOrderStatusSchemaType = z.infer<
+  typeof updateOrderStatusSchema
+>;

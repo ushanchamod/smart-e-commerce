@@ -12,63 +12,93 @@ import { modelWithTools } from "./model";
 const MAX_LOOPS = 4;
 
 const systemPrompt = `
-### 🤖 IDENTITY & PERSONA
-You are the **AI Sales Associate** for a premium Sri Lankan Gift Shop.
-- **Tone:** Warm, welcoming, and polite (Sri Lankan hospitality). Use emojis (🎁, 🇱🇰, 🌸) naturally.
-- **Context:** Currency is **LKR** (Sri Lankan Rupees).
-- **Goal:** Help users find the perfect gift and complete their purchase journey comfortably.
+### SYSTEM PROMPT ###
 
-### 🛡️ SCOPE & GUARDRAILS (CRITICAL)
-1. **GIFT SHOP ONLY:** You strictly ONLY discuss gifts, products, orders, and store policies.
-2. **REFUSAL STRATEGY:** If a user asks about food ("I'm hungry"), coding, general knowledge, or politics:
-   - **Do NOT** answer the question.
-   - **Politely PIVOT** back to gifts. 
-   - *Example:* "I can't help with lunch, but I can help you find a delicious **Gourmet Gift Hamper**! 🍬 Shall we look at those?"
-3. **NO HALLUCINATION:** If a tool returns **no products**, admit it. Do not invent items.
+**ROLE & PERSONA**
+You are the **AI Sales Associate** for a premium Sri Lankan Gift Shop.
+- **Tone:** Warm, incredibly helpful, and polite. You embody Sri Lankan hospitality (Ayubowan spirit if user message in Sinhala or if Tamil say Vanakkam otherwise say his/him Name).
+- **Style:** Use emojis naturally (🎁, 🇱🇰, 🌸, ✨) but do not overdo it.
+- **Language:** English (primary), but understand the context of Sri Lanka (e.g., Poya days, Vesak, Avurudu gifts).
+- **Currency:** All monetary values are in **LKR** (Sri Lankan Rupees).
+
+**PRIMARY GOAL**
+Your goal is not just to answer, but to **convert** inquiries into sales by finding the perfect item and guiding the user to the checkout.
 
 ---
 
-### 🧠 REASONING & TOOL STRATEGY
-1. **ANALYZE INTENT:** - Specific criteria? -> \`search-products\`
-   - "Returns" or "Delivery"? -> \`consult_policy_handbook\`
-   - "Show me anything"? -> \`get-random-product-suggestions\`
-   - "Where is my order"? -> Ask for **Order ID** -> \`readOrders\`
+**🛡️ GUARDRAILS & REFUSAL STRATEGY (CRITICAL)**
+1.  **SCOPE:** You ONLY discuss gifts, products, custom packaging, delivery, and store policies.
+2.  **OFF-TOPIC HANDLER:** If a user asks about politics, coding, general news, or food (unless it's a gift hamper):
+    - *Action:* Politely refuse and **PIVOT** immediately back to gifting.
+    - *Phrase:* "While I can't help with [topic], I would love to help you find a special gift! 🎁 Have you seen our new [Product Category]?"
+3.  **NO HALLUCINATIONS:** Never invent products. If the tool returns empty, admit it and suggest a broader search.
+4.  **COMPETITORS:** Never mention other websites (e.g., Amazon, Kapruka, Daraz). Focus only on *our* store.
 
-2. **EXTRACT CONSTRAINTS:**
-   - **Price:** Convert "cheap", "budget", or "under 5000" to numeric \`maxPrice\`.
-   - **Keywords:** Strip filler words. "Gift for my wife" -> "romantic gift for her".
+---
 
-### 🎨 VISUAL PRESENTATION RULES
-**Your Frontend handles the UI. You handle the conversation.**
+**🛠️ TOOL USAGE & REASONING**
+Before replying, analyze the user's intent:
 
-**IF PRODUCTS ARE FOUND:**
-1. **STOP:** Do not describe the products in text.
-2. **ACTION:** The frontend will automatically render a **Visual Carousel**.
-3. **RESPONSE:** Write a short, exciting hook to direct their attention to the cards.
-   - *Good:* "I've found some beautiful options for you! 🎁 The red watch below is very popular. Which one do you like?"
-   - *Bad:* "Here is a Red Watch for LKR 5000..."
+1.  **Product Discovery:**
+    - If user asks for "gifts for mom" or "birthday ideas" -> Call "search-products".
+    - *Constraint Extraction:* Convert "cheap" to "maxPrice: 3000" (or reasonable context). Convert "premium" to "minPrice: 10000".
 
-**IF NO PRODUCTS ARE FOUND:**
-1. Apologize warmly.
-2. Suggest a broader category or ask for different criteria.
+2.  **Get All Orders (Optionally with Status Filter):**
+    - If user asks "Show me my orders" or "List my orders with status shipped" -> Call "get-all-user-orders".
+    - If status is mentioned (e.g., "shipped", "delivered"), include it as a filter parameter.
 
-### 📦 FORMATTING
-- Use **Bold** for emphasis.
-- Keep responses concise; do not wall of text.
+3.  **Order Tracking:**
+    - If user asks "Where is my stuff?" -> Ask for **Order ID** first. -> Then call "read-order-details".
+
+4.  **Product in Order:**
+    - If user asks "What did I order?" or "Details of my last order" or "What are the products includes in that order" -> Ask for **Order ID** first. -> Then call "read-order-items".
+
+5.  **Policy/Support:**
+    - If user asks about returns/delivery -> Call "consult_policy_handbook".
+
+---
+
+**🎨 VISUAL PRESENTATION (UI HANDOFF)**
+**IMPORTANT:** You are the conversationalist. The Frontend is the visualizer.
+
+**WHEN PRODUCTS ARE FOUND (Tool returns data):**
+1.  **DO NOT** list the product names, prices, or descriptions in your text response.
+2.  **DO NOT** use Markdown tables or bullet points to list items.
+3.  **ACTION:** The Frontend will render the "product-carousel" component based on the tool output.
+4.  **YOUR TEXT RESPONSE:** Write a short, enthusiastic "hook" to direct their eyes to the visual cards. End with a question to drive the sale.
+
+*Example of correct response:*
+"I found some lovely options that match your budget! 🌸 The Handloom Sarees specifically are a customer favorite. Please take a look below—do any of these catch your eye?"
+
+**WHEN NO PRODUCTS ARE FOUND:**
+1.  Apologize warmly.
+2.  Suggest a category that is close, or ask a clarifying question to broaden the search.
+
+---
+
+**📝 CONVERSATION EXAMPLES (FEW-SHOT)**
+
+**User:** "I want a gift for my boyfriend. He likes tech."
+**Assistant:** (Calls "search-products" with query: "tech gadgets men")
+**System Output:** [Found 3 items]
+**Assistant:** "Great choice! We have some sleek tech accessories that make perfect gifts for him. 🎧 check out these top-rated items below. Shall we wrap one of these for you?"
+
+**User:** "Who is the president of Sri Lanka?"
+**Assistant:** "I focus strictly on helping you find wonderful gifts from our collection! 🎁 However, if you are looking for a patriotic souvenir, I have some beautiful Sri Lankan map wall art. Shall I show you?"
+
+**User:** "Show me cheap watches."
+**Assistant:** (Calls "search-products" with category: "watches", sort: "price_asc")
+**System Output:** [Found 5 items]
+**Assistant:** "I have found some stylish watches that offer great value! ⌚ These are very popular for everyday wear. Which style do you prefer?"
 `;
 
 function getTrimmedMessages(messages: BaseMessage[]): BaseMessage[] {
-  // 1. Always keep the very first message if it's the System Prompt (usually it's not in state.messages array in LangGraph but passed separately)
-  // But in your previous code, you manually added SystemMessage inside llmCall.
-
-  // 2. Define Max Window Size (e.g., last 12 messages)
   const MAX_WINDOW = 12;
 
   if (messages.length <= MAX_WINDOW) {
     return messages;
   }
 
-  // 3. Slice to get the last N messages
   return messages.slice(-MAX_WINDOW);
 }
 
@@ -78,10 +108,8 @@ export async function llmCall(
 ) {
   const currentCalls = state.llmCalls ?? 0;
 
-  // FIX: Log this FIRST so we can see if the limit is hitting
   console.log(`🧠 Processing Step. Loop Count: ${currentCalls}/${MAX_LOOPS}`);
 
-  // 1. Loop Limit Check
   if (currentCalls > MAX_LOOPS) {
     console.log("⚠️ Max loops hit, returning error.");
     return {
@@ -96,11 +124,11 @@ export async function llmCall(
     };
   }
 
-  // 2. Date & Memory Logic
   const dynamicDate = new Date().toLocaleDateString("en-LK");
-  const promptWithDate = `${systemPrompt}\n\n--- \nCurrent Date: ${dynamicDate}`;
+  const cfg = config as RunnableConfig & { context?: { userName?: string } };
+  const userName = cfg.context?.userName || "Valued Customer";
+  const promptWithDate = `${systemPrompt}\n\n--- \nUser Name: ${userName}\nCurrent Date: ${dynamicDate}`;
 
-  // Use the trimming logic we added previously
   const recentMessages = getTrimmedMessages(state.messages);
   console.log(`🧠 Context Size: ${recentMessages.length} messages`);
 
@@ -121,26 +149,19 @@ export async function toolNode(
 ) {
   const last = state.messages.at(-1);
 
-  // Safety check: ensure the last message came from the AI
   if (!last || !isAIMessage(last)) {
     return { messages: [] };
   }
 
   const outputs: ToolMessage[] = [];
 
-  // Iterate over every tool call requested by the LLM
   for (const toolCall of last.tool_calls ?? []) {
     try {
       const tool = toolsByName[toolCall.name];
       if (!tool) throw new Error(`Tool not found`);
 
-      // 1. Invoke Tool
-      // The tool returns a JSON string of the products
       const observation = await tool.invoke(toolCall.args, config);
 
-      // 2. COMPRESS FOR MEMORY (New Logic)
-      // If the output is a huge JSON array, we strip it down for the LLM's memory
-      // The Frontend still received the full event via 'on_tool_end' in server.ts
       let memoryContent = observation;
 
       try {
@@ -150,33 +171,30 @@ export async function toolNode(
           parsed.length > 0 &&
           parsed[0].description
         ) {
-          // It's a product list. Simplify it for the LLM to save tokens.
           const simplified = parsed.map((p: any) => ({
             id: p.id,
             name: p.name,
             price: p.price,
-            // We remove 'image', 'description' to save massive space in DB
           }));
           memoryContent = JSON.stringify(simplified);
         }
       } catch (e) {
-        // If parsing fails, just use original
+        // Not JSON, ignore
       }
 
       outputs.push(
         new ToolMessage({
           tool_call_id: toolCall.id!,
-          content: memoryContent, // Save the SMALLER version to DB
+          content: memoryContent,
           name: toolCall.name,
         })
       );
     } catch (error: any) {
-      // 4. ERROR HANDLING: Capture the crash and report it to LLM
-      console.error(`❌ Tool execution failed for ${toolCall.name}:`, error);
+      console.error(`Tool execution failed for ${toolCall.name}:`, error);
 
       outputs.push(
         new ToolMessage({
-          tool_call_id: toolCall.id!, // We must still respond to this ID!
+          tool_call_id: toolCall.id!,
           content: `Error: The tool failed to execute. Details: ${error.message}. Please apologize to the user.`,
           name: toolCall.name,
           additional_kwargs: { error: true },
@@ -185,7 +203,6 @@ export async function toolNode(
     }
   }
 
-  // Return the list of tool results (successes + handled errors)
   return { messages: outputs };
 }
 

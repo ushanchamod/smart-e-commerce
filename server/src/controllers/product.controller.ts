@@ -24,7 +24,8 @@ export const CreateProduct = async (
   const existingCategory = await db
     .select()
     .from(categoriesTable)
-    .where(eq(categoriesTable.categoryId, parseInt(categoryId)));
+    .where(eq(categoriesTable.categoryId, categoryId))
+    .limit(1);
 
   if (existingCategory.length === 0) {
     return sendError(res, "Category does not exist", 400);
@@ -45,7 +46,7 @@ export const CreateProduct = async (
         price: price.toString(),
         description,
         image,
-        categoryId: parseInt(categoryId),
+        categoryId: categoryId,
         embedding,
       })
       .returning();
@@ -55,7 +56,24 @@ export const CreateProduct = async (
     }
 
     return sendSuccess(res, result[0], "Product created successfully", 201);
-  } catch (error) {
+  } catch (error: any) {
+    // LOGGING (CRITICAL FIX)
+    console.error("❌ CreateProduct Failed:", error);
+
+    // Handle specific errors if needed
+    if (error.code === "23505") {
+      return sendError(res, "A product with this name already exists", 409);
+    }
+
+    // Check if it was an OpenAI/Embedding error
+    if (error.message && error.message.includes("OpenAI")) {
+      return sendError(
+        res,
+        "AI Embedding generation failed. Please try again.",
+        503
+      );
+    }
+
     return sendError(res, "Failed to create product", 500);
   }
 };
@@ -76,7 +94,8 @@ export const GetAllProducts = async (req: Request, res: Response) => {
       .innerJoin(
         categoriesTable,
         eq(productsTable.categoryId, categoriesTable.categoryId)
-      );
+      )
+      .orderBy(sql`RANDOM()`);
     return sendSuccess(res, products, "Products retrieved successfully");
   } catch (error) {
     return sendError(res, "Failed to retrieve products", 500);

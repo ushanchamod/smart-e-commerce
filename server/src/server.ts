@@ -46,14 +46,10 @@ const startServer = async () => {
             `✅ Auth success: ${socket.id} (${user.email || "User"})`
           );
         } else {
-          console.log(`⚠️  No valid auth header for ${socket.id}`);
-          // Optional: Disconnect if you require strictly authenticated users
-          // socket.disconnect();
-          // return;
+          console.log(`!!! No valid auth header for ${socket.id}`);
         }
       } catch (err: any) {
         console.error(`❌ Auth failed for ${socket.id}:`, err.message);
-        // Optional: Disconnect on bad token
         socket.disconnect();
         return;
       }
@@ -93,7 +89,7 @@ const startServer = async () => {
               {
                 version: "v2",
                 configurable,
-                context: { userName: "John Smith" },
+                context: { userName: user ? user.firstName : "Guest" },
               }
             );
 
@@ -117,10 +113,8 @@ const startServer = async () => {
 
                 if (UI_WIDGET_TOOLS.includes(event.name)) {
                   try {
-                    // 1. Try to parse the output as JSON (for the Carousel)
                     const toolData = JSON.parse(event.data.output);
 
-                    // 2. Check if it's an array (valid product list) or just an object
                     const dataToSend = Array.isArray(toolData)
                       ? toolData
                       : [toolData];
@@ -130,10 +124,8 @@ const startServer = async () => {
                       data: dataToSend,
                     });
                   } catch (e) {
-                    // 3. FALLBACK: If JSON parse fails (e.g., tool returned "No products found")
-                    // Send it as a normal text chunk so the user sees the explanation.
                     console.log(
-                      `⚠️ Tool output was not JSON, sending as text: ${event.data.output}`
+                      `!!! Tool output was not JSON, sending as text: ${event.data.output}`
                     );
                     socket.emit("chatStream", {
                       chunk: `\n\n*System Note:* ${event.data.output}\n\n`,

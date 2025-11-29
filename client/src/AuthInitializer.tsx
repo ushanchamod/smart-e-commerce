@@ -17,7 +17,7 @@ export function AuthInitializer() {
         // );
 
         const resMe = (await fetchData("/auth/me", "GET")) as {
-          content: { data: { id: number } };
+          content: { data: { userId: number } };
         };
 
         if (!resMe || error) {
@@ -25,7 +25,7 @@ export function AuthInitializer() {
         }
 
         setUser({
-          id: resMe?.content.data.id,
+          id: resMe?.content.data.userId,
         });
       } catch (error: unknown) {
         console.error("Failed to fetch user:", error);

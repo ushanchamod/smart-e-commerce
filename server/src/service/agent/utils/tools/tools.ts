@@ -19,7 +19,9 @@ import {
   gt,
   gte,
   ilike,
+  inArray,
   lte,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -35,34 +37,124 @@ const formatCurrency = (amount: string | number) => {
   }).format(Number(amount));
 };
 
+function getSimilarity(str1: string, str2: string): number {
+  const s1 = str1.toLowerCase();
+  const s2 = str2.toLowerCase();
+
+  if (s1 === s2) return 1.0;
+  if (s1.includes(s2) || s2.includes(s1)) return 0.8;
+
+  const track = Array(s2.length + 1)
+    .fill(null)
+    .map(() => Array(s1.length + 1).fill(null));
+  for (let i = 0; i <= s1.length; i += 1) {
+    track[0][i] = i;
+  }
+  for (let j = 0; j <= s2.length; j += 1) {
+    track[j][0] = j;
+  }
+  for (let j = 1; j <= s2.length; j += 1) {
+    for (let i = 1; i <= s1.length; i += 1) {
+      const indicator = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      track[j][i] = Math.min(
+        track[j][i - 1] + 1,
+        track[j - 1][i] + 1,
+        track[j - 1][i - 1] + indicator
+      );
+    }
+  }
+  const distance = track[s2.length][s1.length];
+  const maxLength = Math.max(s1.length, s2.length);
+  return 1 - distance / maxLength;
+}
+
 export const getSomeProducts = tool(
-  async () => {
+  async (_input, config: RunnableConfig) => {
     try {
-      const products = await db
-        .select({
-          id: productsTable.productId,
-          name: productsTable.name,
-          price: productsTable.price,
-          description: productsTable.description,
-          image: productsTable.image,
-          category: categoriesTable.name,
-        })
-        .from(productsTable)
-        .innerJoin(
-          categoriesTable,
-          eq(productsTable.categoryId, categoriesTable.categoryId)
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(5);
+      const userId = config.configurable?.user_id;
+      let recommendedProducts: any[] = [];
+
+      if (userId) {
+        const pastPurchases = await db
+          .select({
+            productId: orderItemsTable.productId,
+            categoryId: productsTable.categoryId,
+          })
+          .from(orderItemsTable)
+          .innerJoin(
+            ordersTable,
+            eq(orderItemsTable.orderId, ordersTable.orderId)
+          )
+          .innerJoin(
+            productsTable,
+            eq(orderItemsTable.productId, productsTable.productId)
+          )
+          .where(eq(ordersTable.userId, Number(userId)));
+
+        if (pastPurchases.length > 0) {
+          const boughtProductIds = pastPurchases.map((p) => p.productId);
+          const preferredCategoryIds = [
+            ...new Set(pastPurchases.map((p) => p.categoryId)),
+          ];
+
+          recommendedProducts = await db
+            .select({
+              id: productsTable.productId,
+              name: productsTable.name,
+              price: productsTable.price,
+              description: productsTable.description,
+              image: productsTable.image,
+              category: categoriesTable.name,
+            })
+            .from(productsTable)
+            .innerJoin(
+              categoriesTable,
+              eq(productsTable.categoryId, categoriesTable.categoryId)
+            )
+            .where(
+              and(
+                inArray(productsTable.categoryId, preferredCategoryIds),
+                notInArray(productsTable.productId, boughtProductIds)
+              )
+            )
+            .orderBy(sql`RANDOM()`)
+            .limit(5);
+        }
+      }
+
+      const products =
+        recommendedProducts.length > 0
+          ? recommendedProducts
+          : await db
+              .select({
+                id: productsTable.productId,
+                name: productsTable.name,
+                price: productsTable.price,
+                description: productsTable.description,
+                image: productsTable.image,
+                category: categoriesTable.name,
+              })
+              .from(productsTable)
+              .innerJoin(
+                categoriesTable,
+                eq(productsTable.categoryId, categoriesTable.categoryId)
+              )
+              .orderBy(sql`RANDOM()`)
+              .limit(5);
 
       const productsFormatted = products.map((product) => ({
         ...product,
         price: formatCurrency(product.price),
         product_path: `${CLIENT_URL}/product/${product.id}`,
+        suggestion_type:
+          recommendedProducts.length > 0
+            ? "Personalized based on history"
+            : "Popular/Random selection",
       }));
 
       return JSON.stringify(productsFormatted);
     } catch (error) {
+      console.error("Tool Error (getSomeProducts):", error);
       return `Error fetching products: ${error}`;
     }
   },
@@ -71,6 +163,10 @@ export const getSomeProducts = tool(
     description: `
     USE CASE: Open-ended discovery / Window shopping.
     TRIGGER: User asks "Show me something interesting", "What do you recommend?", or "Give me gift ideas" WITHOUT specific criteria.
+    
+    BEHAVIOR:
+    - If the user is logged in, this tool automatically prioritizes items matching their past purchase history.
+    - If they are a guest, it returns a random selection of popular items.
     
     RESTRICTIONS:
     - DO NOT use if the user specifies a category (e.g., "flowers"), color, or price. Use 'search-products' for those.
@@ -141,8 +237,13 @@ export const getSpecificProduct = tool(
 );
 
 export const searchProducts = tool(
-  async (inputs: { query: string; minPrice?: number; maxPrice?: number }) => {
-    const { query, minPrice, maxPrice } = inputs;
+  async (inputs: {
+    query: string;
+    minPrice?: number;
+    maxPrice?: number;
+    category?: string;
+  }) => {
+    const { query, minPrice, maxPrice, category } = inputs;
 
     if (!query || query.trim() === "") {
       return "Error: Search query cannot be empty.";
@@ -150,16 +251,15 @@ export const searchProducts = tool(
 
     try {
       const queryVector = await embeddings.embedQuery(query.trim());
-
       const similarity = sql<number>`1 - (${cosineDistance(
         productsTable.embedding,
         queryVector
       )})`;
 
       const conditions = [];
-
       conditions.push(gt(similarity, 0.3));
 
+      // 2. Price Filters
       if (minPrice !== undefined) {
         conditions.push(gte(productsTable.price, minPrice.toString()));
       }
@@ -167,6 +267,38 @@ export const searchProducts = tool(
         conditions.push(lte(productsTable.price, maxPrice.toString()));
       }
 
+      let resolvedCategory: string | null = null;
+
+      if (category) {
+        const allCategories = await db
+          .select({ name: categoriesTable.name })
+          .from(categoriesTable);
+
+        let bestMatch = null;
+        let highestScore = 0;
+
+        for (const cat of allCategories) {
+          const score = getSimilarity(category, cat.name);
+          if (score > highestScore) {
+            highestScore = score;
+            bestMatch = cat.name;
+          }
+        }
+
+        if (bestMatch && highestScore > 0.6) {
+          console.log(
+            `Category Normalization: "${category}" -> "${bestMatch}" (Score: ${highestScore.toFixed(2)})`
+          );
+          conditions.push(eq(categoriesTable.name, bestMatch));
+          resolvedCategory = bestMatch;
+        } else {
+          console.log(
+            `!!! Category "${category}" not found in DB. Dropping filter to rely on Vector Search.`
+          );
+        }
+      }
+
+      // 4. Execute Main Search
       const products = await db
         .select({
           id: productsTable.productId,
@@ -188,7 +320,7 @@ export const searchProducts = tool(
 
       if (products.length === 0) {
         console.log(
-          "⚠️ Vector search yielded 0 results, attempting text fallback..."
+          "⚠️ Vector search yielded 0 results, attempting hybrid text fallback..."
         );
 
         const textConditions = [
@@ -197,8 +329,13 @@ export const searchProducts = tool(
             ilike(categoriesTable.name, `%${query}%`)
           ),
         ];
+
         if (maxPrice)
           textConditions.push(lte(productsTable.price, maxPrice.toString()));
+
+        if (resolvedCategory) {
+          textConditions.push(eq(categoriesTable.name, resolvedCategory));
+        }
 
         const fallbackProducts = await db
           .select({
@@ -244,23 +381,13 @@ export const searchProducts = tool(
   },
   {
     name: "search-products",
-    description: `
-    USE CASE: The PRIMARY search tool. Use whenever user provides specific criteria (keywords, category, color, or price).
-    
-    PARAMETER EXTRACTION RULES:
-    1. 'query': The search keywords (e.g., "birthday gift", "red roses"). REMOVE price mentions from this string.
-    2. 'minPrice' / 'maxPrice': Extract numeric budget limits here.
-    
-    EXAMPLE:
-    User: "Show me watches under 5000"
-    Tool Input: { "query": "watches", "maxPrice": 5000 }
-    `,
+    description: `USE CASE: Search with specific criteria (keywords, category, price).`,
     schema: z.object({
-      query: z
+      query: z.string().describe("The user's search intent keywords."),
+      category: z
         .string()
-        .describe(
-          "The user's search intent. Can be abstract (e.g. 'anniversary') or specific."
-        ),
+        .optional()
+        .describe("Target category name (e.g. 'Clothing', 'Electronics')"),
       minPrice: z.number().optional().describe("Minimum price filter (LKR)"),
       maxPrice: z.number().optional().describe("Maximum price filter (LKR)"),
     }),
@@ -311,6 +438,51 @@ export const getAllCategories = tool(
   }
 );
 
+export const getAllOrders = tool(
+  async (params, runOpts: RunnableConfig) => {
+    const userId = runOpts.configurable?.user_id;
+    if (!userId) {
+      return "Error: User not authenticated. Cannot access orders.";
+    }
+    try {
+      const orders = await db
+        .select({
+          orderId: ordersTable.orderId,
+          address: ordersTable.address,
+          totalAmount: ordersTable.totalAmount,
+          paymentMethod: ordersTable.paymentMethod,
+          status: ordersTable.status,
+          createdAt: ordersTable.createdAt,
+        })
+        .from(ordersTable)
+        .where(
+          and(
+            eq(ordersTable.userId, Number(userId)),
+            params.status ? eq(ordersTable.status, params.status) : undefined
+          )
+        )
+        .orderBy(desc(ordersTable.createdAt));
+      return JSON.stringify(orders);
+    } catch (error) {
+      console.error("Tool Error (getAllOrders):", error);
+      return "An error occurred while accessing the order database.";
+    }
+  },
+  {
+    name: "get-all-user-orders",
+    description: `
+    USE CASE: Retrieve all orders placed by the authenticated user.
+    TRIGGER: User asks "Show my orders" or "What orders have I placed?".
+    `,
+    schema: z.object({
+      status: z
+        .enum(["PENDING", "PAID", "SHIPPED", "DELIVERED", "CANCELLED"])
+        .optional()
+        .describe("Optional filter to retrieve orders by their status"),
+    }),
+  }
+);
+
 export const readOrders = tool(
   async (params, runOpts: RunnableConfig) => {
     const userId = runOpts.configurable?.user_id;
@@ -357,9 +529,68 @@ export const readOrders = tool(
     }
   },
   {
-    name: "readOrders",
+    name: "read-order-details",
     description: `
     USE CASE: Check the status of a specific order.
+    
+    MANDATORY REQUIREMENT:
+    - You MUST provide a specific 'orderId'.
+    - If the user asks "Show my orders" WITHOUT providing an ID, DO NOT call this tool. Instead, reply asking for the Order ID.
+    `,
+    schema: z.object({
+      orderId: z.string().describe("The unique identifier of the order"),
+    }),
+  }
+);
+
+export const productsIncludedInOrder = tool(
+  async (params, runOpts: RunnableConfig) => {
+    const userId = runOpts.configurable?.user_id;
+    const { orderId } = params;
+
+    if (!userId) {
+      return "Error: User not authenticated. Cannot access order items.";
+    }
+
+    if (!orderId) {
+      return "Error: Order ID cannot be empty.";
+    }
+
+    try {
+      const items = await db
+        .select({
+          productId: productsTable.productId,
+          name: productsTable.name,
+          price: productsTable.price,
+          quantity: orderItemsTable.quantity,
+          image: productsTable.image,
+        })
+        .from(orderItemsTable)
+        .innerJoin(
+          ordersTable,
+          eq(orderItemsTable.orderId, ordersTable.orderId)
+        )
+        .innerJoin(
+          productsTable,
+          eq(orderItemsTable.productId, productsTable.productId)
+        )
+        .where(
+          and(
+            eq(ordersTable.userId, Number(userId)),
+            eq(ordersTable.orderId, Number(orderId))
+          )
+        );
+
+      return JSON.stringify(items);
+    } catch (error) {
+      console.error("Tool Error (productsIncusedInOrder):", error);
+      return "An error occurred while accessing the order items database.";
+    }
+  },
+  {
+    name: "read-order-items",
+    description: `
+    USE CASE: Retrieve the list of products included in a specific order.
     
     MANDATORY REQUIREMENT:
     - You MUST provide a specific 'orderId'.
@@ -374,10 +605,8 @@ export const readOrders = tool(
 export const lookupPolicy = tool(
   async ({ query }: { query: string }) => {
     try {
-      // 1. Convert user question to vector
       const queryVector = await embeddings.embedQuery(query);
 
-      // 2. Perform Vector Search (Semantic Similarity)
       const similarity = sql<number>`1 - (${cosineDistance(
         documentsTable.embedding,
         queryVector
@@ -389,13 +618,12 @@ export const lookupPolicy = tool(
           similarity: similarity,
         })
         .from(documentsTable)
-        .where(gt(similarity, 0.75)) // Only relevant matches
+        .where(gt(similarity, 0.75))
         .orderBy(desc(similarity))
         .limit(3);
 
       if (docs.length === 0) return "No specific policy found for this query.";
 
-      // 3. Return the text chunks to the LLM
       return docs.map((d) => d.content).join("\n\n");
     } catch (error) {
       return "Error accessing policy handbook.";

@@ -69,6 +69,16 @@ export const UserLogin = async (req: Request, res: Response) => {
   }
 };
 
+export const LogoutUser = async (req: AuthenticatedRequest, res: Response) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  });
+
+  return sendSuccess(res, null, "User logged out successfully");
+};
+
 export const GetMe = async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user as JWTPayloadType;
 
