@@ -16,6 +16,7 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import { getSocket, resetSocket } from "../../service/socket";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 // --- Interfaces ---
 export interface Product {
@@ -47,6 +48,7 @@ const SUGGESTED_QUESTIONS = [
 const Chat = () => {
   const socket = getSocket();
   const navigation = useNavigate();
+  const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
@@ -164,6 +166,10 @@ const Chat = () => {
       });
     };
 
+    const orderCancelled = () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    };
+
     const onChatEnd = (data: { status: string; error?: string }) => {
       setIsTyping(false);
 
@@ -207,6 +213,7 @@ const Chat = () => {
     socket.on("disconnect", onDisconnect);
     socket.on("chatStream", onChatStream);
     socket.on("suggestedProducts", onSuggestedProducts);
+    socket.on("orderCancelled", orderCancelled);
     socket.on("chatEnd", onChatEnd);
     socket.on("connect_error", (err) => {
       console.error("Connection Error:", err);
@@ -220,7 +227,7 @@ const Chat = () => {
       socket.off("chatEnd", onChatEnd);
       socket.off("connect_error");
     };
-  }, [socket]);
+  }, [queryClient, socket]);
 
   const sendMessage = (text: string) => {
     setIsStartTyping((prv) => !prv);

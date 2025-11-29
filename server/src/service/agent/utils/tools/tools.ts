@@ -18,6 +18,7 @@ import {
   eq,
   gt,
   gte,
+  ne,
   ilike,
   inArray,
   lte,
@@ -598,6 +599,81 @@ export const productsIncludedInOrder = tool(
     `,
     schema: z.object({
       orderId: z.string().describe("The unique identifier of the order"),
+    }),
+  }
+);
+
+export const cancelOrder = tool(
+  async (params, runOpts: RunnableConfig) => {
+    const userId = runOpts.configurable?.user_id;
+    const { orderId } = params;
+
+    if (!userId) {
+      return "Error: User not authenticated. Cannot cancel orders.";
+    }
+
+    if (!orderId) {
+      return "Error: Order ID cannot be empty.";
+    }
+    try {
+      const order = await db
+        .select()
+        .from(ordersTable)
+        .where(
+          and(
+            eq(ordersTable.userId, Number(userId)),
+            eq(ordersTable.orderId, Number(orderId))
+          )
+        );
+      if (order.length === 0) {
+        return `Order with ID ${orderId} not found for this user.`;
+      }
+
+      if (order[0].status === "CANCELLED") {
+        return `Order with ID ${orderId} is already cancelled.`;
+      }
+
+      if (order[0].status === "SHIPPED" || order[0].status === "DELIVERED") {
+        return `Order with ID ${orderId} cannot be cancelled as it is already ${order[0].status.toLowerCase()}.`;
+      }
+
+      const result = await db
+        .update(ordersTable)
+
+        .set({ status: "CANCELLED" })
+        .where(
+          and(
+            eq(ordersTable.userId, Number(userId)),
+            eq(ordersTable.orderId, Number(orderId)),
+            ne(ordersTable.status, "CANCELLED")
+          )
+        )
+        .returning();
+
+      if (result.length === 0) {
+        return `Order with ID ${orderId} could not be cancelled. It may not exist, belong to you, or is already cancelled.`;
+      }
+
+      return `Order with ID ${orderId} has been successfully cancelled.`;
+    } catch (error) {
+      console.error("Tool Error (cancelOrder):", error);
+      return "An error occurred while attempting to cancel the order.";
+    }
+  },
+  {
+    name: "cancel-order",
+    description: `
+    USE CASE: Cancel a specific order placed by the user.
+    TRIGGER: User asks "I want to cancel my order #1234".
+    
+    CRITICAL RULES:
+    1. You MUST provide a valid 'orderId'.
+    2. Only orders that are not already cancelled can be cancelled.
+    `,
+    schema: z.object({
+      orderId: z
+        .string()
+        .describe("The unique identifier of the order to cancel"),
     }),
   }
 );

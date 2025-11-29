@@ -132,6 +132,16 @@ const startServer = async () => {
                     });
                   }
                 }
+
+                try {
+                  if (event.name === "cancel-order") {
+                    socket.emit("orderCancelled", {
+                      data: event.data.output,
+                    });
+                  }
+                } catch (e) {
+                  console.error("Error emitting orderCancelled event:", e);
+                }
               }
             }
 
