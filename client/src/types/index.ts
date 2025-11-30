@@ -1,5 +1,3 @@
-// src/types/index.ts
-
 export interface Product {
   id: string;
   name: string;
@@ -10,7 +8,6 @@ export interface Product {
   inventory: number;
 }
 
-// Specific logic for a Gift Shop
 export interface GiftOptions {
   isWrapped: boolean;
   wrapColor?: "red" | "blue" | "gold" | "rustic";
@@ -19,7 +16,7 @@ export interface GiftOptions {
 }
 
 export interface CartItem extends Product {
-  cartItemId: string; // Unique ID (Product ID + Gift Options combo)
+  cartItemId: string;
   quantity: number;
   selectedGiftOptions?: GiftOptions;
 }

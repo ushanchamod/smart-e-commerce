@@ -11,11 +11,6 @@ export function AuthInitializer() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        // const resMe = await instance.get("/user/me");
-        // const resCompany = await instance.get(
-        //   `/company/${resMe.data.content.data.companyId}`
-        // );
-
         const resMe = (await fetchData("/auth/me", "GET")) as {
           content: { data: { userId: number } };
         };

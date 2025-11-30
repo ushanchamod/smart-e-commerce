@@ -18,7 +18,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
-// --- Interfaces ---
 export interface Product {
   id: string | number;
   name: string;
@@ -83,14 +82,12 @@ const Chat = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isOpen, isStartTyping]);
 
-  // --- Focus Input on Open ---
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 300);
     }
   }, [isOpen]);
 
-  // --- Socket Logic ---
   useEffect(() => {
     const onConnect = () => {
       setIsConnected(true);
@@ -107,7 +104,6 @@ const Chat = () => {
     const onChatStream = (data: any) => {
       const textChunk = data.chunk || data.content || "";
 
-      // FIXED: Allow spaces, only return if strictly empty string
       if (!textChunk && textChunk !== " ") return;
 
       setMessages((prev) => {
@@ -147,7 +143,7 @@ const Chat = () => {
             {
               ...lastMsg,
               products: data.data,
-              isStreaming: true, // Keep open for text
+              isStreaming: true,
             },
           ];
         }
@@ -176,7 +172,6 @@ const Chat = () => {
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
 
-        // Case 1: Close existing message
         if (lastMsg && lastMsg.sender === "bot") {
           const updated = [...prev];
           updated[updated.length - 1] = { ...lastMsg, isStreaming: false };
@@ -189,9 +184,6 @@ const Chat = () => {
           return updated;
         }
 
-        // Case 2: No message exists yet.
-        // FIXED: Only show error if the STATUS is error.
-        // If status is "success" but no message exists yet, do nothing (wait for stream).
         if (data.status === "error") {
           return [
             ...prev,
@@ -235,7 +227,6 @@ const Chat = () => {
 
     setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
 
-    // FIXED: Ensure Session ID is retrieved OR Created AND Saved
     let session_id = localStorage.getItem("chat_session_id");
     if (!session_id) {
       session_id = crypto.randomUUID();
@@ -270,8 +261,6 @@ const Chat = () => {
     window.location.reload();
   };
 
-  // --- Render ---
-
   return (
     <>
       <AnimatePresence>
@@ -284,7 +273,7 @@ const Chat = () => {
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               setIsOpen(true);
-              setFullScreen(false); // Start small
+              setFullScreen(false);
             }}
             className="fixed bottom-6 right-6 z-50 w-16 h-16 bg-black text-white rounded-full shadow-2xl flex items-center justify-center group"
           >
@@ -306,7 +295,6 @@ const Chat = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            // if fullScreen is true, center chat in middle of screen with cover more area
             className={`fixed ${
               fullScreen
                 ? "inset-0 m-4 w-[calc(100vw-50px)] h-[calc(100vh-50px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans"
@@ -363,15 +351,12 @@ const Chat = () => {
               </div>
             </div>
 
-            {/* Messages Area */}
             <div
               className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth"
               onScroll={handleScroll}
             >
               {messages.length === 0 && (
-                /* ... Empty State ... */
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 animate-in fade-in zoom-in duration-300">
-                  {/* ... content ... */}
                   <div className="grid grid-cols-1 gap-2 w-full max-w-[280px]">
                     {SUGGESTED_QUESTIONS.map((q, i) => (
                       <button
@@ -404,7 +389,6 @@ const Chat = () => {
                       msg.sender === "user" ? "items-end" : "items-start"
                     }`}
                   >
-                    {/* Message Bubble */}
                     {msg.text && (
                       <div
                         className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
@@ -421,7 +405,6 @@ const Chat = () => {
                       </div>
                     )}
 
-                    {/* Product Carousel */}
                     {msg.products && msg.products.length > 0 && (
                       <div className="w-full mt-3 max-w-full">
                         <div className="flex items-center gap-2 mb-2 px-1">
@@ -442,7 +425,6 @@ const Chat = () => {
                               }}
                               className="min-w-[180px] max-w-[180px] bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group cursor-pointer"
                             >
-                              {/* ... Product Card Content ... */}
                               <div className="h-32 w-full bg-gray-100 relative overflow-hidden">
                                 {product.image ? (
                                   <img
@@ -476,7 +458,6 @@ const Chat = () => {
                       </div>
                     )}
 
-                    {/* Timestamp */}
                     <span className="text-[10px] text-gray-400 mt-1 px-1">
                       {new Date(msg.timestamp).toLocaleTimeString([], {
                         hour: "2-digit",
@@ -487,14 +468,12 @@ const Chat = () => {
                 </motion.div>
               ))}
 
-              {/* Typing Indicator */}
               {isTyping && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="flex justify-start items-center gap-2"
                 >
-                  {/* ... Loading Dots ... */}
                   <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
                     <Zap
                       className="h-3 w-3 text-indigo-500"
@@ -511,9 +490,7 @@ const Chat = () => {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
             <div className="p-4 bg-white border-t border-gray-100">
-              {/* ... Input Field ... */}
               <div className="relative flex items-end gap-2 bg-gray-50 rounded-2xl border border-transparent focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50 transition-all p-2">
                 <input
                   name="chat-input"

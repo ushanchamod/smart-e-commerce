@@ -94,8 +94,8 @@ export const GetAllProducts = async (req: Request, res: Response) => {
       .innerJoin(
         categoriesTable,
         eq(productsTable.categoryId, categoriesTable.categoryId)
-      )
-      .orderBy(sql`RANDOM()`);
+      );
+
     return sendSuccess(res, products, "Products retrieved successfully");
   } catch (error) {
     return sendError(res, "Failed to retrieve products", 500);

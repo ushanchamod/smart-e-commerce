@@ -5,13 +5,13 @@ import { sendError, sendSuccess } from "../utils";
 import { db } from "../db";
 import { usersTable } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { loginUserSchemaType } from "../validators/user.dto";
+import {
+  loginUserSchemaType,
+  registerUserSchemaType,
+} from "../validators/user.dto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-/** User login controller
- * Validates user credentials, generates JWT token, and sets it in an HTTP-only cookie
- * */
 export const UserLogin = async (req: Request, res: Response) => {
   const { email, password, role } = req.body as loginUserSchemaType;
 
@@ -102,5 +102,38 @@ export const GetMe = async (req: AuthenticatedRequest, res: Response) => {
   } catch (error: unknown) {
     console.error("Error retrieving user data:", error);
     return sendError(res, "Failed to retrieve user data", 500);
+  }
+};
+
+export const RegisterUser = async (req: Request, res: Response) => {
+  const { email, password, firstName, lastName } =
+    req.body as registerUserSchemaType;
+
+  try {
+    const existingUsers = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, email.toLowerCase()));
+
+    if (existingUsers.length > 0) {
+      return sendError(res, "User already exists", 409);
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const [newUser] = await db
+      .insert(usersTable)
+      .values({
+        email: email.toLowerCase(),
+        passwordHash,
+        firstName,
+        lastName: lastName || null,
+        role: "USER",
+      })
+      .returning();
+    return sendSuccess(res, newUser, "User registered successfully", 201);
+  } catch (error: unknown) {
+    console.error("Error during user registration:", error);
+    return sendError(res, "Failed to register user", 500);
   }
 };

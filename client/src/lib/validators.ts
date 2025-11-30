@@ -1,4 +1,3 @@
-// src/lib/validators.ts
 import { z } from "zod";
 
 export const checkoutSchema = z.object({

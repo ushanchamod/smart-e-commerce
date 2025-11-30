@@ -14,7 +14,6 @@ import { useAxios } from "../../service/useAxios";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-// --- Skeleton Component ---
 const DetailsSkeleton = () => (
   <div className="max-w-7xl mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-2 gap-12">
     <div className="w-full h-[500px] bg-gray-100 rounded-3xl animate-pulse" />
@@ -41,7 +40,6 @@ export const ProductDetails = () => {
   const [quantity, setQuantity] = useState(1);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // --- Fetch Data ---
   const fetchProduct = async (): Promise<Product> => {
     const response = await fetchData<{ content: Product }>(
       `/products/${id}`,
@@ -59,7 +57,6 @@ export const ProductDetails = () => {
     queryFn: fetchProduct,
   });
 
-  // --- Add to Cart Logic ---
   const handleAddToCart = async () => {
     if (!product) return;
     await fetchData(`/orders/add-to-cart/${product.id}`, "PUT", {
@@ -77,7 +74,6 @@ export const ProductDetails = () => {
     onError: () => alert("Failed to add to cart"),
   });
 
-  // --- Handlers ---
   const increment = () => {
     if (product && quantity < product.inventory) setQuantity((q) => q + 1);
   };
@@ -86,7 +82,6 @@ export const ProductDetails = () => {
     if (quantity > 1) setQuantity((q) => q - 1);
   };
 
-  // --- Render States ---
   if (isLoading) return <DetailsSkeleton />;
 
   if (error || !product) {
@@ -114,7 +109,6 @@ export const ProductDetails = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Navigation Bar */}
       <div className="max-w-7xl mx-auto px-4 py-6">
         <button
           onClick={() => navigate(-1)}
@@ -126,7 +120,6 @@ export const ProductDetails = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 pb-20 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20">
-        {/* --- LEFT: IMAGE --- */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -142,7 +135,6 @@ export const ProductDetails = () => {
               alt={product.name}
               className="w-full h-full object-cover object-center"
             />
-            {/* Overlay for OOS */}
             {isOutOfStock && (
               <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] flex items-center justify-center">
                 <span className="bg-black text-white px-6 py-2 rounded-full font-bold text-lg shadow-xl transform -rotate-12">
@@ -153,9 +145,7 @@ export const ProductDetails = () => {
           </div>
         </motion.div>
 
-        {/* --- RIGHT: DETAILS --- */}
         <div className="flex flex-col pt-2 lg:pt-8">
-          {/* Header Info */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -165,11 +155,6 @@ export const ProductDetails = () => {
               <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase">
                 {product.category}
               </span>
-              {/* Mock Rating - Remove if real data exists */}
-              {/* <div className="flex items-center gap-1 text-amber-400 text-sm font-medium">
-                <Star fill="currentColor" size={14} />
-                <span className="text-gray-600">4.8 (120 reviews)</span>
-              </div> */}
             </div>
 
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 tracking-tight mb-4">
@@ -183,12 +168,9 @@ export const ProductDetails = () => {
                   currency: "LKR",
                 }).format(product.price)}
               </span>
-              {/* Optional: Mock discount */}
-              {/* <span className="text-lg text-gray-400 line-through mb-1">LKR 5,000.00</span> */}
             </div>
           </motion.div>
 
-          {/* Description */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -201,7 +183,6 @@ export const ProductDetails = () => {
             </p>
           </motion.div>
 
-          {/* Controls */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -238,7 +219,6 @@ export const ProductDetails = () => {
               </div>
             )}
 
-            {/* Action Button */}
             <div className="flex gap-4 pt-4 border-t border-gray-100">
               <button
                 onClick={() => mutate()}

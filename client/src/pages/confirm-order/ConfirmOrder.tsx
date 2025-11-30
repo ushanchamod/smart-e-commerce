@@ -13,8 +13,6 @@ import {
   ShoppingBag,
 } from "lucide-react";
 
-// --- Components ---
-
 const CheckoutSkeleton = () => (
   <div className="min-h-screen bg-gray-50 max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
     <div className="lg:col-span-2 space-y-6">
@@ -30,12 +28,10 @@ const ConfirmOrder = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  // Form State
   const [paymentMethod, setPaymentMethod] = useState<"online" | "cod" | "">("");
   const [address, setAddress] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // --- Fetch Cart Data ---
   const GetData = async () => {
     const response = (await fetchData("/orders/my-cart", "GET")) as {
       content: CartItemProps[];
@@ -48,7 +44,6 @@ const ConfirmOrder = () => {
     queryFn: GetData,
   });
 
-  // --- Create Order Action ---
   const createOrder = async () => {
     await fetchData("/orders", "POST", {
       address,
@@ -63,7 +58,6 @@ const ConfirmOrder = () => {
       setIsSuccess(true);
       setTimeout(() => {
         navigate("/");
-        // In a real app, navigate to a /success page instead
       }, 2000);
     },
     onError: (error) => {
@@ -72,7 +66,6 @@ const ConfirmOrder = () => {
     },
   });
 
-  // --- Helpers ---
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentMethod) return alert("Please select a payment method");
@@ -96,18 +89,16 @@ const ConfirmOrder = () => {
     );
   }
 
-  // Calculations
   const subtotal = cartItems.reduce(
     (sum, item) => sum + Number(item.unitPrice) * Number(item.quantity),
     0
   );
-  const shipping = 0; // Mock free shipping
+  const shipping = 0;
   const total = subtotal + shipping;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 font-sans">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-8 flex items-center gap-3">
           <button
             onClick={() => navigate(-1)}
@@ -122,9 +113,7 @@ const ConfirmOrder = () => {
           onSubmit={handleSubmit}
           className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"
         >
-          {/* --- LEFT COLUMN: INPUTS --- */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Section 1: Address */}
             <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-3 mb-4 text-gray-800">
                 <MapPin className="text-indigo-600" size={20} />
@@ -141,7 +130,6 @@ const ConfirmOrder = () => {
               />
             </section>
 
-            {/* Section 2: Payment Method */}
             <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-3 mb-4 text-gray-800">
                 <CreditCard className="text-indigo-600" size={20} />
@@ -149,7 +137,6 @@ const ConfirmOrder = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Option: Card */}
                 <div
                   onClick={() => setPaymentMethod("online")}
                   className={`cursor-pointer border rounded-xl p-4 flex items-center gap-4 transition-all duration-200
@@ -170,7 +157,6 @@ const ConfirmOrder = () => {
                   </div>
                 </div>
 
-                {/* Option: COD */}
                 <div
                   onClick={() => setPaymentMethod("cod")}
                   className={`cursor-pointer border rounded-xl p-4 flex items-center gap-4 transition-all duration-200
@@ -196,14 +182,12 @@ const ConfirmOrder = () => {
             </section>
           </div>
 
-          {/* --- RIGHT COLUMN: SUMMARY --- */}
           <div className="lg:col-span-1">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 sticky top-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">
                 Order Summary
               </h2>
 
-              {/* Items List (Scrollable if long) */}
               <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 mb-6 custom-scrollbar">
                 {cartItems.map((item) => (
                   <div key={item.id} className="flex gap-3 items-center">
@@ -236,7 +220,6 @@ const ConfirmOrder = () => {
                 ))}
               </div>
 
-              {/* Calculations */}
               <div className="space-y-3 pt-4 border-t border-gray-100">
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Subtotal</span>
@@ -264,7 +247,6 @@ const ConfirmOrder = () => {
                 </div>
               </div>
 
-              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={isCreatingOrder || isSuccess}

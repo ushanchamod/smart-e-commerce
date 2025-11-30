@@ -77,7 +77,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = memo(({ content }) => {
             {...props}
           />
         ),
-        // --- HEADINGS ---
         h1: ({ node, ...props }) => (
           <h1
             className="text-xl font-bold mt-4 mb-2 pb-1 border-b border-gray-200"
@@ -96,7 +95,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = memo(({ content }) => {
             {...props}
           />
         ),
-        // --- LISTS ---
         ul: ({ node, ...props }) => (
           <ul
             className="list-disc pl-5 mb-2 space-y-1 marker:text-gray-400"
@@ -110,7 +108,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = memo(({ content }) => {
           />
         ),
         li: ({ node, ...props }) => <li className="pl-1" {...props} />,
-        // --- TABLES ---
         table: ({ node, ...props }) => (
           <div className="overflow-x-auto my-3 rounded-lg border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200" {...props} />
@@ -137,7 +134,6 @@ const MarkdownRenderer: React.FC<{ content: string }> = memo(({ content }) => {
             {...props}
           />
         ),
-        // --- EXTRAS ---
         blockquote: ({ node, ...props }) => (
           <blockquote
             className="border-l-4 border-indigo-300 bg-indigo-50 pl-3 py-2 my-2 rounded-r-md text-gray-600 italic text-xs"

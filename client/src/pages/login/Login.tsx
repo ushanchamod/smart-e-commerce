@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAxios } from "../../service/useAxios";
 import { useMutation } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 export default function Login() {
   const { fetchData } = useAxios();
@@ -87,10 +88,10 @@ export default function Login() {
         </form>
 
         <div className="mt-6 text-center text-sm text-gray-500">
-          Don\'t have an account?{" "}
-          <a href="#" className="text-indigo-600 hover:underline">
+          Don't have an account?{" "}
+          <Link to="/auth/register" className="text-indigo-600 hover:underline">
             Create one
-          </a>
+          </Link>
         </div>
       </div>
     </div>

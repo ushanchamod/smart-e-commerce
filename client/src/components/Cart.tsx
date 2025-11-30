@@ -17,7 +17,6 @@ export interface CartItemProps extends Product {
   subtotal: number;
 }
 
-// Helper for consistent currency formatting
 const formatPrice = (amount: number) => {
   return new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -42,7 +41,6 @@ function Cart({ closeCart }: { closeCart: () => void }) {
     return response.content;
   }
 
-  // Calculate Total
   const totalAmount =
     data?.reduce((acc, item) => acc + item.unitPrice * item.quantity, 0) || 0;
 
@@ -53,7 +51,6 @@ function Cart({ closeCart }: { closeCart: () => void }) {
 
   return (
     <div className="flex flex-col h-full bg-white shadow-2xl w-full max-w-md ml-auto border-l border-gray-100 z-51">
-      {/* --- Header --- */}
       <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <ShoppingBag className="text-indigo-600" size={20} />
@@ -72,11 +69,9 @@ function Cart({ closeCart }: { closeCart: () => void }) {
         </button>
       </div>
 
-      {/* --- Body (Scrollable) --- */}
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
         {isPending ? (
           <div className="space-y-4">
-            {/* Skeleton Loading */}
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
@@ -113,7 +108,6 @@ function Cart({ closeCart }: { closeCart: () => void }) {
         )}
       </div>
 
-      {/* --- Footer (Sticky) --- */}
       {data && data.length > 0 && (
         <div className="border-t border-gray-100 p-6 bg-white safe-bottom">
           <div className="space-y-3 mb-6">
@@ -160,17 +154,14 @@ const CartItem = ({ item }: { item: CartItemProps }) => {
       queryClient.invalidateQueries({ queryKey: ["cart"] });
     },
     onError: () => {
-      // Ideally show a toast here
       alert("Failed to remove item.");
     },
   });
 
-  // Handle Image format (String or Array)
   const imageUrl = Array.isArray(item.images) ? item.images[0] : item.images;
 
   return (
     <div className="group relative flex items-start gap-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200">
-      {/* Image */}
       <div className="w-20 h-20 shrink-0 bg-gray-100 rounded-lg overflow-hidden border border-gray-100">
         <img
           src={imageUrl}
@@ -179,7 +170,6 @@ const CartItem = ({ item }: { item: CartItemProps }) => {
         />
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-between h-20 py-0.5">
         <div>
           <h3 className="text-sm font-semibold text-gray-900 truncate pr-6">
@@ -198,7 +188,6 @@ const CartItem = ({ item }: { item: CartItemProps }) => {
         </div>
       </div>
 
-      {/* Delete Button */}
       <button
         onClick={() => handleDelete()}
         disabled={isDeleting}

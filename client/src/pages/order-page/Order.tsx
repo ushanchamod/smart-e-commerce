@@ -19,7 +19,6 @@ import {
   ShoppingBag,
 } from "lucide-react";
 
-// --- Types ---
 interface OrderItemProps {
   productId: number;
   quantity: number;
@@ -38,7 +37,6 @@ interface Order {
   orderItems: OrderItemProps[];
 }
 
-// --- Helpers ---
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat("en-LK", {
     style: "currency",
@@ -101,8 +99,6 @@ const getStatusConfig = (status: string) => {
   );
 };
 
-// --- Sub-Components ---
-
 const OrderSkeleton = () => (
   <div className="space-y-4">
     {[1, 2, 3].map((i) => (
@@ -144,13 +140,11 @@ const OrderCard = ({ order }: { order: Order }) => {
           : "border-gray-200 hover:border-gray-300"
       }`}
     >
-      {/* HEADER: Click to Expand */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
         className="p-5 cursor-pointer relative group"
       >
         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-          {/* Left Side: Icon + ID + Status */}
           <div className="flex gap-4 items-center">
             <div
               className={`p-3 rounded-xl ${statusConfig.bg} ${statusConfig.color} bg-opacity-50`}
@@ -192,7 +186,6 @@ const OrderCard = ({ order }: { order: Order }) => {
             </div>
           </div>
 
-          {/* Right Side: Price + Chevron */}
           <div className="flex items-center justify-between w-full md:w-auto gap-8 pl-16 md:pl-0">
             <div className="text-right">
               <span className="block text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -214,7 +207,6 @@ const OrderCard = ({ order }: { order: Order }) => {
         </div>
       </div>
 
-      {/* BODY: Expandable Content */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -225,7 +217,6 @@ const OrderCard = ({ order }: { order: Order }) => {
             className="overflow-hidden bg-gray-50/50"
           >
             <div className="p-5 border-t border-gray-100">
-              {/* Product Grid */}
               <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <ShoppingBag size={16} /> Items in this order
               </h4>
@@ -263,7 +254,6 @@ const OrderCard = ({ order }: { order: Order }) => {
                 ))}
               </div>
 
-              {/* Footer / Meta Data */}
               <div className="mt-6 pt-6 border-t border-gray-200 border-dashed flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -283,7 +273,6 @@ const OrderCard = ({ order }: { order: Order }) => {
                   </div>
                 </div>
 
-                {/* Actions */}
                 <div className="flex w-full md:w-auto gap-3">
                   <button className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-black transition shadow-sm">
                     <FileText size={16} /> Invoice
@@ -300,8 +289,6 @@ const OrderCard = ({ order }: { order: Order }) => {
     </motion.div>
   );
 };
-
-// --- Main Component ---
 
 const Order = () => {
   const { fetchData } = useAxios();
@@ -350,7 +337,6 @@ const Order = () => {
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20">
       <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8">
-        {/* Page Header */}
         <div className="flex flex-col md:flex-row justify-between items-end gap-4">
           <div>
             <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
@@ -360,10 +346,8 @@ const Order = () => {
               View and track your recent orders ({data.length})
             </p>
           </div>
-          {/* Optional: Filter/Search controls could go here */}
         </div>
 
-        {/* Order List */}
         <div className="space-y-4">
           {data.map((order) => (
             <OrderCard key={order.orderId} order={order} />

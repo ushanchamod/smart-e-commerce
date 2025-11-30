@@ -20,10 +20,8 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  // Handle Add to Cart
   const handleAddToCart = async (): Promise<void> => {
     if (!user) {
-      // ask compomation to login
       const confirmed = confirm(
         "You need to be logged in to add items to the cart. Go to login page?"
       );
@@ -45,17 +43,14 @@ export const ProductCard = ({ product }: ProductCardProps) => {
     mutationFn: handleAddToCart,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cart"] });
-      // Show success state on button for 2 seconds
       setIsSuccess(true);
       setTimeout(() => setIsSuccess(false), 2000);
     },
     onError: (error) => {
       console.error("Error adding product to cart:", error);
-      // Ideally trigger a toast notification here
     },
   });
 
-  // Image Logic: Handle array/string and fallbacks
   const imageUrl = Array.isArray(product.images)
     ? product.images[0]
     : product.images;
@@ -68,7 +63,6 @@ export const ProductCard = ({ product }: ProductCardProps) => {
       className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden cursor-pointer group flex flex-col h-full"
       onClick={() => navigate(`/product/${product.id}`)}
     >
-      {/* IMAGE CONTAINER */}
       <div className="relative w-full aspect-4/3 overflow-hidden bg-gray-50">
         {!imgError ? (
           <motion.img
@@ -86,25 +80,21 @@ export const ProductCard = ({ product }: ProductCardProps) => {
           </div>
         )}
 
-        {/* Category Badge */}
         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-semibold text-gray-700 shadow-sm">
           {product.category}
         </div>
       </div>
 
-      {/* CONTENT */}
       <div className="p-5 flex flex-col grow">
         <div className="grow">
           <h3 className="font-bold text-lg text-gray-900 line-clamp-1 mb-1 group-hover:text-indigo-600 transition-colors">
             {product.name}
           </h3>
           <p className="text-gray-500 text-sm line-clamp-2 leading-relaxed">
-            {/* Assuming product might have description, otherwise fallback */}
-            Excellent quality {product.category.toLowerCase()} for your needs.
+            {product.description || ""}
           </p>
         </div>
 
-        {/* PRICE & ACTION */}
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50">
           <span className="text-xl font-bold text-gray-900">
             {new Intl.NumberFormat("en-LK", {
@@ -121,7 +111,6 @@ export const ProductCard = ({ product }: ProductCardProps) => {
               e.stopPropagation();
               mutate();
             }}
-            // FIXED: w-10 h-10 makes it a fixed square. No text.
             className={`
     h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-300
     ${

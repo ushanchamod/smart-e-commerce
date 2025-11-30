@@ -6,6 +6,7 @@ import AuthLayout from "./layouts/AuthLayout";
 import Login from "./pages/login/Login";
 import ConfirmOrder from "./pages/confirm-order/ConfirmOrder";
 import Order from "./pages/order-page/Order";
+import Register from "./pages/register/Register";
 
 const browserRouter = createBrowserRouter([
   {
@@ -40,7 +41,7 @@ const browserRouter = createBrowserRouter([
       },
       {
         path: "register",
-        element: <div>Register Page</div>,
+        element: <Register />,
       },
     ],
   },

@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useAxios } from "../../service/useAxios";
 import { Search } from "lucide-react";
 
-// --- Skeleton Component ---
 const ProductSkeleton = () => (
   <div className="bg-white rounded-2xl border border-gray-100 p-0 overflow-hidden h-full">
     <div className="w-full aspect-4/3 bg-gray-200 animate-pulse" />
@@ -50,7 +49,6 @@ const ProductsPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
@@ -61,7 +59,6 @@ const ProductsPage = () => {
           </p>
         </div>
 
-        {/* Optional: Search Bar Visual */}
         <div className="relative w-full md:w-72">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -75,7 +72,6 @@ const ProductsPage = () => {
         </div>
       </div>
 
-      {/* PRODUCT GRID */}
       <div
         className="
           grid 
@@ -87,14 +83,12 @@ const ProductsPage = () => {
         "
       >
         {isLoading
-          ? // Render 8 Skeletons while loading
-            Array.from({ length: 8 }).map((_, index) => (
+          ? Array.from({ length: 8 }).map((_, index) => (
               <ProductSkeleton key={index} />
             ))
           : data?.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
 
-      {/* Empty State */}
       {!isLoading && data?.length === 0 && (
         <div className="col-span-full py-20 text-center text-gray-400">
           No products found.
