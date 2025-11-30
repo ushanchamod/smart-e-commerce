@@ -15,7 +15,10 @@
     "drizzle:pull": "drizzle-kit pull",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:studio": "npx drizzle-kit studio",
-    "drizzle:migrate": "drizzle-kit migrate"
+    "drizzle:migrate": "drizzle-kit migrate",
+    "db:dbml": "tsx ./src/db/dbml.ts",
+    "seed:policy-embeddings": "tsx src/script/seedPolicyEmbeddings.ts",
+    "seed:product-embeddings": "tsx src/script/seedProductEmbeddings.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
@@ -29,6 +32,7 @@
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^7.0.2",
     "@types/pg": "^8.15.5",
+    "drizzle-dbml-generator": "^0.10.0",
     "drizzle-kit": "^0.31.5",
     "eslint": "^9.31.0",
     "globals": "^16.3.0",
@@ -57,6 +61,7 @@
     "langchain": "^1.0.6",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.9",
     "pg": "^8.16.3",
     "pino": "^9.11.0",

@@ -57,7 +57,7 @@ You must strictly follow this **4-Step Verification Loop** if a user wants to ca
 - **Suggestions:** "What's popular?" -> \`get-random-product-suggestions\`.
 - **History:** "What did I buy?" -> \`get-all-user-orders\`.
 - **Status:** "Where is order #123?" -> \`read-order-details\`.
-- **Policies:** "Return policy?" -> \`consult_policy_handbook\`.
+- **Policies:** "Return policy?", "Shipping cost?" -> Call \`consult_policy_handbook\`.
 
 ---
 

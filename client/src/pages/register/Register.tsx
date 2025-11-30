@@ -48,7 +48,8 @@ export default function Register() {
     onSuccess: () => {
       navigate("/auth/login");
     },
-    onError: (error) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
       alert(error?.response.data.message || error);
     },
   });

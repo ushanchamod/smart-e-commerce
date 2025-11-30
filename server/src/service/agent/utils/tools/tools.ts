@@ -681,46 +681,74 @@ export const cancelOrder = tool(
 export const lookupPolicy = tool(
   async ({ query }: { query: string }) => {
     try {
-      const queryVector = await embeddings.embedQuery(query);
+      console.log(`🔍 Policy Lookup: "${query}"`);
 
+      const queryVector = await embeddings.embedQuery(query);
       const similarity = sql<number>`1 - (${cosineDistance(
         documentsTable.embedding,
         queryVector
       )})`;
 
-      const docs = await db
+      let docs = await db
         .select({
           content: documentsTable.content,
-          similarity: similarity,
+          metadata: documentsTable.metadata,
+          score: similarity,
         })
         .from(documentsTable)
-        .where(gt(similarity, 0.75))
+        .where(gt(similarity, 0.5))
         .orderBy(desc(similarity))
         .limit(3);
 
+      if (docs.length === 0) {
+        console.log(
+          "⚠️ Policy Vector Match Failed. Attempting Keyword Fallback..."
+        );
+
+        docs = await db
+          .select({
+            content: documentsTable.content,
+            metadata: documentsTable.metadata,
+            score: sql<number>`0`,
+          })
+          .from(documentsTable)
+          .where(ilike(documentsTable.content, `%${query}%`))
+          .limit(3);
+      }
+
+      console.log(`📄 Found ${docs.length} policy matches.`);
+
       if (docs.length === 0) return "No specific policy found for this query.";
 
-      return docs.map((d) => d.content).join("\n\n");
+      return docs
+        .map((d) => {
+          let topic = "General";
+          try {
+            if (d.metadata) {
+              const parsed = JSON.parse(d.metadata as string);
+              if (parsed.topic) topic = parsed.topic;
+            }
+          } catch (e) {
+            // Ignore JSON errors
+          }
+          return `[POLICY: ${topic.toUpperCase()}]\n${d.content}`;
+        })
+        .join("\n\n---\n\n");
     } catch (error) {
+      console.error("Policy Lookup Error:", error);
       return "Error accessing policy handbook.";
     }
   },
   {
     name: "consult_policy_handbook",
     description: `
-    USE CASE: Retrieve official business policies (Shipping, Returns, Privacy, Payments).
-    TRIGGER: User asks "How do I return?", "Is it safe?", "Delivery time?".
-    
-    RESTRICTIONS:
-    - Treat this tool as the single source of truth for rules.
-    - If this tool returns "No policy found", admit you don't know. Do not hallucinate policies.
+    USE CASE: Retrieve official business policies.
+    TRIGGER: User asks about Shipping, Returns, Privacy, Payments, or Support.
     `,
     schema: z.object({
       query: z
         .string()
-        .describe(
-          "The specific policy question, e.g., 'How do I return an item?'"
-        ),
+        .describe("The specific keyword (e.g. 'delivery', 'return')."),
     }),
   }
 );

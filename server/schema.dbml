@@ -1,0 +1,109 @@
+table cart_items {
+  cart_item_id serial [pk, not null, increment]
+  user_id integer [not null]
+  product_id integer [not null]
+  quantity integer [not null, default: 1]
+  added_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id [name: 'cart_user_idx']
+    product_id [name: 'cart_product_idx']
+  }
+}
+
+table categories {
+  category_id serial [pk, not null, increment]
+  name varchar(100) [not null, unique]
+  description text
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+table documents {
+  id serial [pk, not null, increment]
+  content text [not null]
+  metadata text
+  embedding vector(1536)
+}
+
+table order_items {
+  order_item_id serial [pk, not null, increment]
+  order_id integer [not null]
+  product_id integer [not null]
+  quantity integer [not null, default: 1]
+  unit_price "numeric(10, 2)" [not null]
+
+  indexes {
+    order_id [name: 'order_items_order_idx']
+    product_id [name: 'order_items_product_idx']
+  }
+}
+
+table orders {
+  order_id serial [pk, not null, increment]
+  user_id integer [not null]
+  address text [not null]
+  total_amount "numeric(10, 2)" [not null]
+  payment_method varchar(20) [not null, default: 'cod']
+  status varchar(50) [not null, default: 'PENDING']
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    user_id [name: 'orders_user_idx']
+    
+  }
+}
+
+table payments {
+  payment_id serial [pk, not null, increment]
+  order_id integer [not null]
+  payment_method varchar(50) [not null]
+  payment_status varchar(20) [not null, default: 'PENDING']
+  amount "numeric(10, 2)" [not null]
+  transaction_id varchar(255)
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+table products {
+  product_id serial [pk, not null, increment]
+  name varchar(150) [not null]
+  price "numeric(10, 2)" [not null]
+  description text
+  image_url varchar(255)
+  embedding vector(1536)
+  category_id integer [not null]
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    category_id [name: 'products_category_idx']
+  }
+}
+
+table users {
+  user_id serial [pk, not null, increment]
+  first_name varchar(100) [not null]
+  last_name varchar(100)
+  email varchar(100) [not null, unique]
+  password_hash text [not null]
+  created_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  role varchar(20) [not null]
+  thread_id varchar(255) [not null, unique, default: `gen_random_uuid()`]
+
+  indexes {
+    email [name: 'users_email_idx']
+    
+  }
+}
+
+ref cart_items_user_id_users_user_id_fk: cart_items.user_id > users.user_id [delete: no action, update: no action]
+
+ref cart_items_product_id_products_product_id_fk: cart_items.product_id > products.product_id [delete: no action, update: no action]
+
+ref order_items_order_id_orders_order_id_fk: order_items.order_id > orders.order_id [delete: no action, update: no action]
+
+ref order_items_product_id_products_product_id_fk: order_items.product_id > products.product_id [delete: no action, update: no action]
+
+ref orders_user_id_users_user_id_fk: orders.user_id > users.user_id [delete: no action, update: no action]
+
+ref payments_order_id_orders_order_id_fk: payments.order_id > orders.order_id [delete: no action, update: no action]
+
+ref products_category_id_categories_category_id_fk: products.category_id > categories.category_id [delete: no action, update: no action]
