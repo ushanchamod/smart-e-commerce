@@ -2,11 +2,18 @@ import app from "./app";
 import dotenv from "dotenv";
 dotenv.config();
 
-import { createOwnerIfNotExists, testDbConnection } from "./db";
+// FIX: Ensure these imports are present
+import { createOwnerIfNotExists, testDbConnection, db } from "./db";
+
 import http from "http";
 import { Server } from "socket.io";
-import { getRunnable } from "./service/agent/agent";
-import { HumanMessage } from "@langchain/core/messages";
+import { getChatHistory, getRunnable } from "./service/agent/agent";
+import {
+  HumanMessage,
+  AIMessage,
+  ToolMessage,
+  AIMessageChunk,
+} from "@langchain/core/messages";
 import z from "zod";
 import { JWTPayloadType } from "./dto";
 import jwt from "jsonwebtoken";
@@ -14,6 +21,27 @@ import jwt from "jsonwebtoken";
 export const contextSchema = z.object({
   userName: z.string(),
 });
+
+const getStatusMessage = (toolName: string): string => {
+  switch (toolName) {
+    case "search-products":
+      return "Browsing our catalog...";
+    case "get-product-details":
+      return "Checking product details...";
+    case "get-random-product-suggestions":
+      return "Finding gift ideas...";
+    case "read-order-details":
+    case "read-order-items":
+    case "get-all-user-orders":
+      return "Looking up your orders...";
+    case "cancel-order":
+      return "Processing cancellation...";
+    case "consult_policy_handbook":
+      return "Checking store policies...";
+    default:
+      return "Thinking...";
+  }
+};
 
 const startServer = async () => {
   try {
@@ -46,7 +74,9 @@ const startServer = async () => {
             `✅ Auth success: ${socket.id} (${user.email || "User"})`
           );
         } else {
-          console.log(`!!! No valid auth header for ${socket.id}`);
+          console.log(
+            `ℹ️ No auth token provided. Connecting as Guest: ${socket.id}`
+          );
         }
       } catch (err: any) {
         console.error(`❌ Auth failed for ${socket.id}:`, err.message);
@@ -60,29 +90,78 @@ const startServer = async () => {
         "get-product-details",
       ];
 
+      socket.on("restoreChat", async (data: { session_id: string }) => {
+        const threadId = data.session_id || socket.id;
+        console.log(`🔄 Restoring chat for thread: ${threadId}`);
+
+        try {
+          const rawHistory = await getChatHistory(threadId);
+          const formattedHistory: any[] = [];
+
+          for (const msg of rawHistory) {
+            if (msg instanceof HumanMessage) {
+              formattedHistory.push({
+                id: "hist_" + Math.random().toString(36).substr(2, 9),
+                sender: "user",
+                text: typeof msg.content === "string" ? msg.content : "",
+                timestamp: new Date(),
+                isStreaming: false,
+              });
+            } else if (
+              msg instanceof AIMessageChunk ||
+              msg instanceof AIMessage
+            ) {
+              // Even if text is empty (tool call), we push it so we can attach products later
+              formattedHistory.push({
+                id: "hist_" + Math.random().toString(36).substr(2, 9),
+                sender: "bot",
+                text: typeof msg.content === "string" ? msg.content : "",
+                timestamp: new Date(),
+                isStreaming: false,
+                products: [],
+              });
+            }
+          }
+
+          // Filter out "Ghost" messages (Empty text AND No products)
+          const cleanHistory = formattedHistory.filter((m) => {
+            if (m.sender === "user") return true;
+            // Keep bot message if it has text OR has attached products
+            if (m.sender === "bot") {
+              const hasText = m.text && m.text.trim().length > 0;
+              const hasProducts = m.products && m.products.length > 0;
+              return hasText || hasProducts;
+            }
+            return false;
+          });
+
+          console.log(`📤 Sending ${cleanHistory.length} recovered messages.`);
+          socket.emit("chatHistory", cleanHistory);
+        } catch (error) {
+          console.error("Failed to restore history:", error);
+        }
+      });
+
       socket.on(
         "chatMessage",
         async (data: { message: string; session_id: string }) => {
           const userMessage = data.message || "";
-          const sessionId = data.session_id || "";
+
+          // FIX: Thread Persistence Logic
+          // Start with the session ID provided by frontend, or fallback to socket ID
+          let threadId = data.session_id || socket.id;
+
           const agent = await getRunnable();
 
-          let configurable = {};
-
-          if (user) {
-            configurable = {
-              user_id: user.userId,
-              user_email: user.email,
-              thread_id: sessionId || socket.id,
-            };
-          } else {
-            configurable = {
-              thread_id: sessionId || socket.id,
-            };
-          }
+          // Prepare configurable with the correct thread_id
+          const configurable = {
+            thread_id: threadId,
+            user_id: user?.userId,
+            user_email: user?.email,
+          };
 
           try {
-            console.log(`📩 Processing: ${userMessage}`);
+            console.log(`📩 Processing for thread ${threadId}: ${userMessage}`);
 
             const eventStream = await agent.streamEvents(
               { messages: [new HumanMessage(userMessage)], llmCalls: 0 },
@@ -94,6 +173,11 @@ const startServer = async () => {
             );
 
             for await (const event of eventStream) {
+              if (event.event === "on_tool_start") {
+                const statusMsg = getStatusMessage(event.name);
+                socket.emit("agentState", { status: statusMsg });
+              }
+
               if (event.event === "on_chat_model_stream") {
                 const chunk = event.data.chunk;
                 const token =
@@ -124,12 +208,7 @@ const startServer = async () => {
                       data: dataToSend,
                     });
                   } catch (e) {
-                    console.log(
-                      `!!! Tool output was not JSON, sending as text: ${event.data.output}`
-                    );
-                    socket.emit("chatStream", {
-                      chunk: `\n\n*System Note:* ${event.data.output}\n\n`,
-                    });
+                    // Fallback handled nicely
                   }
                 }
 

@@ -22,3 +22,15 @@ export async function getRunnable() {
   }
   return runnable;
 }
+
+export async function getChatHistory(threadId: string) {
+  const agent = await getRunnable();
+
+  const config = { configurable: { thread_id: threadId } };
+
+  const state = await agent.getState(config);
+
+  console.log(state);
+
+  return state.values.messages || [];
+}

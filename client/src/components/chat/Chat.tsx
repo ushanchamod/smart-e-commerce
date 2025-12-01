@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useState, useRef, useEffect } from "react";
 import {
   MessageCircle,
   X,
@@ -11,12 +12,16 @@ import {
   ExternalLink,
   Minimize2,
   Maximize2,
+  ShoppingBag,
+  AlertCircle,
 } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
-import { getSocket, resetSocket } from "../../service/socket";
+import { getSocket, resetSocket } from "../../service/socket"; // Removed reconnectSocket import
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "../../store/userAuthStore";
+import { Socket } from "socket.io-client";
 
 export interface Product {
   id: string | number;
@@ -35,52 +40,42 @@ interface Message {
   products?: Product[];
   timestamp: Date;
   isStreaming?: boolean;
+  isError?: boolean;
 }
 
 const SUGGESTED_QUESTIONS = [
-  "Track my order",
-  "Delivery charges",
-  "Return policy",
-  "Gifts under LKR 5,000",
+  "🎁 Gift ideas under 5000",
+  "🍰 Can I order a chocolate cake?",
+  "🚚 Where is my order?",
+  "💳 What are the payment options?",
 ];
 
 const Chat = () => {
-  const socket = getSocket();
+  const [socket, setSocket] = useState<Socket>(getSocket());
+
   const navigation = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
+
+  const [agentStatus, setAgentStatus] = useState<string>("");
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(socket.connected);
-  const [userScrolledUp, setUserScrolledUp] = useState(false);
-  const [isStartTyping, setIsStartTyping] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const bottom =
-      Math.abs(
-        e.currentTarget.scrollHeight -
-          e.currentTarget.scrollTop -
-          e.currentTarget.clientHeight
-      ) < 50;
-    if (!bottom) setUserScrolledUp(true);
-    else setUserScrolledUp(false);
-  };
-
   const scrollToBottom = () => {
-    if (!userScrolledUp) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
     scrollToBottom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, isOpen, isStartTyping]);
+  }, [messages, isTyping, agentStatus, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -88,23 +83,67 @@ const Chat = () => {
     }
   }, [isOpen]);
 
+  // FIX: Prevent infinite reconnection loop on page load.
+  // We only sync the local socket state if the global singleton has changed
+  // (e.g., set by Login.tsx). We do NOT call reconnectSocket() here.
   useEffect(() => {
-    const onConnect = () => {
-      setIsConnected(true);
-      if (!localStorage.getItem("chat_session_id")) {
-        const newUUID = crypto.randomUUID();
-        localStorage.setItem("chat_session_id", newUUID);
+    if (user) {
+      const currentGlobalSocket = getSocket();
+      if (socket !== currentGlobalSocket) {
+        console.log("🔄 Syncing new socket instance...");
+        setSocket(currentGlobalSocket);
       }
+    }
+  }, [user, socket]);
+
+  useEffect(() => {
+    // 1. Define Session Init Logic
+    const initSession = () => {
+      let sessionId = localStorage.getItem("chat_session_id");
+      if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        localStorage.setItem("chat_session_id", sessionId);
+      }
+      console.log("🔄 Requesting Chat History Restore for Session:", sessionId);
+      socket.emit("restoreChat", { session_id: sessionId });
     };
+
+    const onConnect = () => {
+      console.log("✅ Socket Connected via Event Listener");
+      setIsConnected(true);
+      initSession();
+    };
+
     const onDisconnect = () => {
+      console.log("🔌 Socket Disconnected");
       setIsConnected(false);
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onConnectError = (err: any) => {
+      console.error("❌ Connection Error:", err.message);
+      setIsConnected(false);
+    };
+
+    const onChatHistory = (history: Message[]) => {
+      console.log("📜 Chat history loaded:", history.length, "messages");
+      console.log("History", history);
+
+      const processed = history.map((m) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      }));
+      setMessages(processed);
+    };
+
+    const onAgentState = (data: { status: string }) => {
+      setAgentStatus(data.status);
+      setIsTyping(true);
+    };
+
     const onChatStream = (data: any) => {
       const textChunk = data.chunk || data.content || "";
-
-      if (!textChunk && textChunk !== " ") return;
+      setAgentStatus("");
+      setIsTyping(false);
 
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
@@ -116,7 +155,6 @@ const Chat = () => {
           ];
         }
 
-        setIsTyping(false);
         return [
           ...prev,
           {
@@ -134,15 +172,23 @@ const Chat = () => {
       toolName: string;
       data: Product[];
     }) => {
+      setAgentStatus("");
+      setIsTyping(false);
+
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-
         if (lastMsg && lastMsg.sender === "bot") {
+          const existingProducts = lastMsg.products || [];
+          const newProducts = data.data;
+          const uniqueNewProducts = newProducts.filter(
+            (np) => !existingProducts.some((ep) => ep.id === np.id)
+          );
+
           return [
             ...prev.slice(0, -1),
             {
               ...lastMsg,
-              products: data.data,
+              products: [...existingProducts, ...uniqueNewProducts],
               isStreaming: true,
             },
           ];
@@ -162,25 +208,39 @@ const Chat = () => {
       });
     };
 
-    const orderCancelled = () => {
+    const onOrderCancelled = (data: { data: string }) => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          sender: "bot",
+          text: `✅ **System Update:** ${
+            data.data || "Order cancelled successfully."
+          }`,
+          timestamp: new Date(),
+          isStreaming: false,
+        },
+      ]);
     };
 
     const onChatEnd = (data: { status: string; error?: string }) => {
       setIsTyping(false);
+      setAgentStatus("");
 
       setMessages((prev) => {
         const lastMsg = prev[prev.length - 1];
-
         if (lastMsg && lastMsg.sender === "bot") {
           const updated = [...prev];
-          updated[updated.length - 1] = { ...lastMsg, isStreaming: false };
+          const finalMsg = { ...lastMsg, isStreaming: false };
 
           if (data.status === "error") {
-            updated[updated.length - 1].text += `\n\n⚠️ **Error:** ${
-              data.error || "Unknown error"
+            finalMsg.text += `\n\n❌ **Error:** ${
+              data.error || "Something went wrong."
             }`;
+            finalMsg.isError = true;
           }
+          updated[updated.length - 1] = finalMsg;
           return updated;
         }
 
@@ -190,48 +250,54 @@ const Chat = () => {
             {
               id: Date.now().toString(),
               sender: "bot",
-              text: `⚠️ **Error:** ${data.error}`,
+              text: `❌ **Error:** ${data.error || "Connection failed."}`,
               timestamp: new Date(),
               isStreaming: false,
+              isError: true,
             },
           ];
         }
-
         return prev;
       });
     };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onConnectError);
+    socket.on("chatHistory", onChatHistory);
+    socket.on("agentState", onAgentState);
     socket.on("chatStream", onChatStream);
     socket.on("suggestedProducts", onSuggestedProducts);
-    socket.on("orderCancelled", orderCancelled);
+    socket.on("orderCancelled", onOrderCancelled);
     socket.on("chatEnd", onChatEnd);
-    socket.on("connect_error", (err) => {
-      console.error("Connection Error:", err);
-    });
+
+    // Immediate connection check
+    if (socket.connected) {
+      console.log("⚡ Socket already connected, initializing immediately.");
+      setIsConnected(true);
+      initSession();
+    } else {
+      console.log("⏳ Socket not connected, connecting now...");
+      socket.connect();
+    }
 
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onConnectError);
+      socket.off("chatHistory", onChatHistory);
+      socket.off("agentState", onAgentState);
       socket.off("chatStream", onChatStream);
       socket.off("suggestedProducts", onSuggestedProducts);
+      socket.off("orderCancelled", onOrderCancelled);
       socket.off("chatEnd", onChatEnd);
-      socket.off("connect_error");
     };
   }, [queryClient, socket]);
 
   const sendMessage = (text: string) => {
-    setIsStartTyping((prv) => !prv);
-    if (!text.trim() || !isConnected) return;
+    if (!text.trim()) return;
 
     setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
-
-    let session_id = localStorage.getItem("chat_session_id");
-    if (!session_id) {
-      session_id = crypto.randomUUID();
-      localStorage.setItem("chat_session_id", session_id);
-    }
 
     setMessages((prev) => [
       ...prev,
@@ -243,22 +309,33 @@ const Chat = () => {
         isStreaming: false,
       },
     ]);
+
     setInput("");
     setIsTyping(true);
-    socket.emit("chatMessage", { message: text, session_id: session_id });
-  };
+    setAgentStatus("");
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(input);
+    let session_id = localStorage.getItem("chat_session_id");
+    if (!session_id) {
+      session_id = crypto.randomUUID();
+      localStorage.setItem("chat_session_id", session_id);
     }
+
+    if (!socket.connected) {
+      console.log("⚠️ Socket disconnected on send, reconnecting...");
+      socket.connect();
+    }
+
+    socket.emit("chatMessage", { message: text, session_id });
   };
 
   const handleClearChat = () => {
     setMessages([]);
     resetSocket();
-    window.location.reload();
+    setIsOpen(false);
+    setTimeout(() => {
+      setSocket(getSocket());
+      setIsOpen(true);
+    }, 500);
   };
 
   return (
@@ -275,14 +352,15 @@ const Chat = () => {
               setIsOpen(true);
               setFullScreen(false);
             }}
-            className="fixed bottom-6 right-6 z-50 w-16 h-16 bg-black text-white rounded-full shadow-2xl flex items-center justify-center group"
+            className="w-16 h-16 bg-black text-white rounded-full shadow-2xl flex items-center justify-center group hover:bg-gray-900 transition-colors"
           >
-            <div className="absolute inset-0 rounded-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="relative z-10">
-              <MessageCircle size={32} />
-              {isConnected && (
-                <span className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-black rounded-full" />
-              )}
+            <div className="relative">
+              <MessageCircle size={28} />
+              <span
+                className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-black ${
+                  isConnected ? "bg-green-500" : "bg-red-500"
+                }`}
+              />
             </div>
           </motion.button>
         )}
@@ -292,35 +370,36 @@ const Chat = () => {
         {isOpen && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              height: fullScreen ? "calc(100vh - 40px)" : "600px",
+              width: fullScreen ? "calc(100vw - 40px)" : "400px",
+            }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className={`fixed ${
-              fullScreen
-                ? "inset-0 m-4 w-[calc(100vw-50px)] h-[calc(100vh-50px)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans"
-                : "bottom-4 right-4 w-[calc(100vw-32px)] sm:w-[400px] h-[600px] max-h-[calc(100vh-32px)]"
-            } z-50 bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans`}
+            className={`bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans fixed bottom-4 right-4 z-50`}
           >
             {/* Header */}
-            <div className="bg-white/90 backdrop-blur-md p-4 border-b border-gray-100 flex justify-between items-center z-10 sticky top-0">
-              {/* ... Header Content ... */}
+            <div className="bg-white p-4 border-b border-gray-100 flex justify-between items-center z-10 sticky top-0 shadow-xs">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="w-10 h-10 bg-linear-to-br from-indigo-100 to-purple-50 rounded-full flex items-center justify-center border border-indigo-50 shadow-sm">
-                    <Bot className="h-6 w-6 text-indigo-600" />
+                  <div className="w-10 h-10 bg-linear-to-br from-indigo-600 to-purple-600 rounded-full flex items-center justify-center shadow-md">
+                    <Bot className="h-6 w-6 text-white" />
                   </div>
                   <span
-                    className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-white ${
-                      isConnected ? "bg-green-500" : "bg-yellow-500"
+                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+                      isConnected ? "bg-green-500" : "bg-red-500"
                     }`}
                   />
                 </div>
                 <div>
-                  <h3 className="font-bold text-gray-900 text-sm leading-tight">
-                    Shopping Assistant
+                  <h3 className="font-bold text-gray-900 text-sm">
+                    Sales Assistant
                   </h3>
                   <p className="text-xs text-gray-500">
-                    {isConnected ? "Replies instantly" : "Connecting..."}
+                    {isConnected ? "Online" : "Reconnecting..."}
                   </p>
                 </div>
               </div>
@@ -328,46 +407,56 @@ const Chat = () => {
               <div className="flex gap-1">
                 <button
                   onClick={() => setFullScreen(!fullScreen)}
-                  className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
                 >
                   {fullScreen ? (
-                    <Minimize2 size={18} />
+                    <Minimize2 size={16} />
                   ) : (
-                    <Maximize2 size={18} />
+                    <Maximize2 size={16} />
                   )}
                 </button>
                 <button
                   onClick={handleClearChat}
-                  className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                  title="Reset Chat"
                 >
-                  <RefreshCcw size={18} />
+                  <RefreshCcw size={16} />
                 </button>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
                 >
                   <X size={20} />
                 </button>
               </div>
             </div>
 
-            <div
-              className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth"
-              onScroll={handleScroll}
-            >
+            {/* Chat Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth">
               {messages.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 animate-in fade-in zoom-in duration-300">
-                  <div className="grid grid-cols-1 gap-2 w-full max-w-[280px]">
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-6">
+                  <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-2">
+                    <Sparkles className="text-indigo-600" size={32} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">
+                      How can I help you?
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Ask about products, orders, or policies.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 w-full">
                     {SUGGESTED_QUESTIONS.map((q, i) => (
                       <button
                         key={i}
                         onClick={() => sendMessage(q)}
-                        className="text-xs font-medium bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 hover:shadow-sm py-2.5 px-4 rounded-xl transition-all text-left flex items-center justify-between group"
+                        className="text-xs font-medium bg-white border border-gray-200 text-gray-600 hover:border-indigo-500 hover:text-indigo-600 hover:shadow-sm py-3 px-4 rounded-xl transition-all text-left flex items-center justify-between group"
                       >
                         {q}{" "}
                         <ChevronRight
                           size={14}
-                          className="opacity-0 group-hover:opacity-100"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
                         />
                       </button>
                     ))}
@@ -391,12 +480,19 @@ const Chat = () => {
                   >
                     {msg.text && (
                       <div
-                        className={`px-4 py-3 rounded-2xl shadow-sm text-sm leading-relaxed ${
+                        className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-xs ${
                           msg.sender === "user"
                             ? "bg-black text-white rounded-tr-sm"
                             : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"
+                        } ${
+                          msg.isError
+                            ? "border-red-200 bg-red-50 text-red-800"
+                            : ""
                         }`}
                       >
+                        {msg.isError && (
+                          <AlertCircle size={16} className="inline mr-2 mb-1" />
+                        )}
                         {msg.sender === "bot" ? (
                           <MarkdownRenderer content={msg.text} />
                         ) : (
@@ -406,11 +502,11 @@ const Chat = () => {
                     )}
 
                     {msg.products && msg.products.length > 0 && (
-                      <div className="w-full mt-3 max-w-full">
-                        <div className="flex items-center gap-2 mb-2 px-1">
-                          <Sparkles size={12} className="text-indigo-500" />
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                            Suggested Products
+                      <div className="w-full mt-3">
+                        <div className="flex items-center gap-1.5 mb-2 px-1">
+                          <ShoppingBag size={12} className="text-indigo-600" />
+                          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            Recommendations
                           </span>
                         </div>
                         <div className="flex gap-3 overflow-x-auto pb-4 pt-1 px-1 scrollbar-hide snap-x">
@@ -419,38 +515,37 @@ const Chat = () => {
                               key={product.id || i}
                               onClick={() => {
                                 if (product.product_path) {
-                                  setFullScreen(false);
+                                  setIsOpen(false);
                                   navigation(product.product_path);
                                 }
                               }}
-                              className="min-w-[180px] max-w-[180px] bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-xl hover:scale-[1.02] transition-all duration-300 group cursor-pointer"
+                              className="min-w-40 max-w-40 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
                             >
-                              <div className="h-32 w-full bg-gray-100 relative overflow-hidden">
+                              <div className="h-28 w-full bg-gray-100 relative overflow-hidden">
                                 {product.image ? (
                                   <img
                                     src={product.image}
                                     alt={product.name}
-                                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                                    <span className="text-xs">No Image</span>
+                                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                                    No Image
                                   </div>
                                 )}
                               </div>
                               <div className="p-3">
-                                <div className="flex justify-between items-start gap-1 mb-1">
-                                  <h5 className="text-xs font-bold text-gray-900 line-clamp-2 leading-tight">
-                                    {product.name}
-                                  </h5>
-                                  <ExternalLink
-                                    size={10}
-                                    className="text-gray-300 shrink-0"
-                                  />
+                                <h5 className="text-xs font-bold text-gray-900 line-clamp-2 mb-1 h-8">
+                                  {product.name}
+                                </h5>
+                                <div className="flex justify-between items-center mt-2">
+                                  <span className="text-xs font-semibold text-indigo-600">
+                                    {product.price}
+                                  </span>
+                                  <div className="w-6 h-6 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                    <ExternalLink size={12} />
+                                  </div>
                                 </div>
-                                <p className="text-xs font-semibold text-indigo-600">
-                                  {product.price}
-                                </p>
                               </div>
                             </div>
                           ))}
@@ -474,54 +569,66 @@ const Chat = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className="flex justify-start items-center gap-2"
                 >
-                  <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
-                    <Zap
-                      className="h-3 w-3 text-indigo-500"
-                      fill="currentColor"
-                    />
+                  <div className="w-8 h-8 rounded-full bg-white border border-gray-100 flex items-center justify-center shadow-sm">
+                    <Bot size={16} className="text-indigo-600 animate-pulse" />
                   </div>
-                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></span>
+                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-3 h-10">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
+                    </div>
+
+                    {agentStatus && (
+                      <>
+                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
+                        <span className="text-xs font-medium text-gray-500 animate-pulse">
+                          {agentStatus}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </motion.div>
               )}
+
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Input Area */}
             <div className="p-4 bg-white border-t border-gray-100">
-              <div className="relative flex items-end gap-2 bg-gray-50 rounded-2xl border border-transparent focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50 transition-all p-2">
+              <div className="relative flex items-end gap-2 bg-gray-50 rounded-2xl border border-transparent focus-within:border-indigo-200 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50 transition-all p-2">
                 <input
-                  name="chat-input"
                   ref={inputRef}
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  disabled={!isConnected}
-                  placeholder={
-                    isConnected ? "Type a message..." : "Reconnecting..."
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && !e.shiftKey && sendMessage(input)
                   }
-                  className="w-full bg-transparent border-none focus:ring-0 outline-0 text-sm py-2 px-2 max-h-20 text-gray-800 placeholder-gray-400"
+                  disabled={!isConnected && !messages.length && !input}
+                  placeholder={
+                    isConnected ? "Ask anything..." : "Connecting..."
+                  }
+                  className="w-full bg-transparent border-none focus:ring-0 outline-0 text-sm py-2 px-3 text-gray-800 placeholder-gray-400"
                   autoComplete="off"
                 />
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim() || !isConnected}
-                  className={`p-2 rounded-xl shrink-0 transition-all duration-200 ${
+                  className={`p-2.5 rounded-xl shrink-0 transition-all duration-200 flex items-center justify-center ${
                     input.trim() && isConnected
-                      ? "bg-black text-white shadow-md hover:scale-105 active:scale-95"
+                      ? "bg-black text-white shadow-md hover:bg-gray-800 hover:scale-105 active:scale-95"
                       : "bg-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
                 >
                   <Send size={18} />
                 </button>
               </div>
-              <div className="text-center mt-2">
-                <p className="text-[10px] text-gray-300">
+              <div className="text-center mt-2 flex items-center justify-center gap-1">
+                <Zap size={10} className="text-indigo-500 fill-indigo-500" />
+                <p className="text-[10px] text-gray-400">
                   Powered by{" "}
-                  <span className="font-semibold text-gray-400">UshanAI</span>
+                  <span className="font-semibold text-gray-500">UshanAI</span>
                 </p>
               </div>
             </div>

@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import Cart from "./Cart";
 import { useUI } from "../lib/uiContext";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ShoppingCart, Menu, X, Store } from "lucide-react";
+import { ShoppingCart, Menu, X, Store, LogOut } from "lucide-react";
 import { useAuthStore } from "../store/userAuthStore";
 import { useAxios } from "../service/useAxios";
+import { resetSocket } from "../service/socket"; // Import this
 
 const NAV_LINKS = [
   { to: "/", label: "All Products" },
@@ -19,7 +20,7 @@ function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
 
-  const cartItemCount = 0;
+  const cartItemCount = 0; // In a real app, this should come from cart store/query
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -33,6 +34,23 @@ function Navbar() {
     }
   }, [cartOpen, mobileMenuOpen]);
 
+  const handleLogout = async () => {
+    try {
+      await fetchData("/auth/logout", "POST");
+    } catch (err) {
+      console.error("Logout API failed, clearing local state anyway", err);
+    } finally {
+      localStorage.removeItem("token");
+      localStorage.removeItem("chat_session_id");
+
+      // FIX: Disconnect socket explicitly
+      resetSocket();
+
+      useAuthStore.getState().logout();
+      navigate("/");
+    }
+  };
+
   const getNavLinkClass = ({ isActive }: { isActive: boolean }) =>
     `text-sm font-medium transition-colors duration-200 ${
       isActive ? "text-indigo-600" : "text-gray-500 hover:text-gray-900"
@@ -40,10 +58,10 @@ function Navbar() {
 
   return (
     <>
-      <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 fixed top-0 left-0 w-full z-40">
+      <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 fixed top-0 left-0 w-full z-40 transition-all">
         <div className="container mx-auto max-w-7xl px-4 h-16 flex justify-between items-center">
           <NavLink to="/" className="flex items-center gap-2 group">
-            <div className="bg-indigo-600 text-white p-1.5 rounded-lg group-hover:bg-indigo-700 transition">
+            <div className="bg-indigo-600 text-white p-1.5 rounded-lg group-hover:bg-indigo-700 transition shadow-sm">
               <Store size={20} />
             </div>
             <h2 className="text-xl font-bold text-gray-800 tracking-tight">
@@ -62,12 +80,7 @@ function Navbar() {
           <div className="flex items-center gap-4">
             {user?.id && (
               <button
-                onClick={() => {
-                  if (!user?.id) {
-                    return navigate("/auth/login");
-                  }
-                  setCartOpen(true);
-                }}
+                onClick={() => setCartOpen(true)}
                 className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors group"
                 aria-label="Open Cart"
               >
@@ -75,12 +88,10 @@ function Navbar() {
                   size={22}
                   className="group-hover:text-indigo-600 transition-colors"
                 />
-                {cartItemCount > 0 ? (
+                {cartItemCount > 0 && (
                   <span className="absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-red-500 rounded-full border-2 border-white">
                     {cartItemCount}
                   </span>
-                ) : (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
               </button>
             )}
@@ -88,25 +99,16 @@ function Navbar() {
             {!user?.id ? (
               <NavLink
                 to="/auth/login"
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition"
+                className="text-sm font-medium bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition shadow-sm"
               >
                 Login
               </NavLink>
             ) : (
               <button
-                onClick={async () => {
-                  try {
-                    await fetchData("/auth/logout", "POST");
-                    localStorage.removeItem("token");
-                    localStorage.removeItem("chat_session_id");
-                    useAuthStore.getState().logout();
-                  } catch (err) {
-                    console.error("Logout failed", err);
-                    alert("Logout failed. Please try again.");
-                  }
-                }}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition"
+                onClick={handleLogout}
+                className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg transition"
               >
+                <LogOut size={16} />
                 Logout
               </button>
             )}
@@ -121,13 +123,13 @@ function Navbar() {
         </div>
 
         {mobileMenuOpen && (
-          <div className="md:hidden absolute top-16 left-0 w-full bg-white border-b border-gray-100 shadow-lg py-4 px-4 flex flex-col gap-4 animate-in slide-in-from-top-2 duration-200">
+          <div className="md:hidden absolute top-16 left-0 w-full bg-white border-b border-gray-100 shadow-lg py-4 px-4 flex flex-col gap-2 animate-in slide-in-from-top-2 duration-200">
             {NAV_LINKS.map((link) => (
               <NavLink
                 key={link.to}
                 to={link.to}
                 className={({ isActive }) =>
-                  `block px-4 py-2 rounded-lg text-base font-medium ${
+                  `block px-4 py-3 rounded-lg text-base font-medium ${
                     isActive
                       ? "bg-indigo-50 text-indigo-700"
                       : "text-gray-600 hover:bg-gray-50"
@@ -137,6 +139,14 @@ function Navbar() {
                 {link.label}
               </NavLink>
             ))}
+            {user?.id && (
+              <button
+                onClick={handleLogout}
+                className="w-full text-left px-4 py-3 rounded-lg text-base font-medium text-red-600 hover:bg-red-50"
+              >
+                Logout
+              </button>
+            )}
           </div>
         )}
       </nav>

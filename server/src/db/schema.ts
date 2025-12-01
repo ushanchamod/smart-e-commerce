@@ -26,10 +26,6 @@ export const usersTable = pgTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull(),
     role: varchar("role", { length: 20 }).notNull(),
-    threadId: varchar("thread_id", { length: 255 })
-      .notNull()
-      .unique()
-      .default(sql`gen_random_uuid()`),
   },
   (table) => [
     index("users_email_idx").on(table.email),

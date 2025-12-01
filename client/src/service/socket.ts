@@ -19,6 +19,14 @@ export const getSocket = () => {
   return socket;
 };
 
+export const reconnectSocket = () => {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  return getSocket();
+};
+
 export const resetSocket = () => {
   if (socket) {
     socket.disconnect();

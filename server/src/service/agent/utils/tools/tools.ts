@@ -22,7 +22,6 @@ import {
   ilike,
   inArray,
   lte,
-  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -37,37 +36,6 @@ const formatCurrency = (amount: string | number) => {
     currency: "LKR",
   }).format(Number(amount));
 };
-
-function getSimilarity(str1: string, str2: string): number {
-  const s1 = str1.toLowerCase();
-  const s2 = str2.toLowerCase();
-
-  if (s1 === s2) return 1.0;
-  if (s1.includes(s2) || s2.includes(s1)) return 0.8;
-
-  const track = Array(s2.length + 1)
-    .fill(null)
-    .map(() => Array(s1.length + 1).fill(null));
-  for (let i = 0; i <= s1.length; i += 1) {
-    track[0][i] = i;
-  }
-  for (let j = 0; j <= s2.length; j += 1) {
-    track[j][0] = j;
-  }
-  for (let j = 1; j <= s2.length; j += 1) {
-    for (let i = 1; i <= s1.length; i += 1) {
-      const indicator = s1[i - 1] === s2[j - 1] ? 0 : 1;
-      track[j][i] = Math.min(
-        track[j][i - 1] + 1,
-        track[j - 1][i] + 1,
-        track[j - 1][i - 1] + indicator
-      );
-    }
-  }
-  const distance = track[s2.length][s1.length];
-  const maxLength = Math.max(s1.length, s2.length);
-  return 1 - distance / maxLength;
-}
 
 export const getSomeProducts = tool(
   async (_input, config: RunnableConfig) => {
@@ -93,7 +61,6 @@ export const getSomeProducts = tool(
           .where(eq(ordersTable.userId, Number(userId)));
 
         if (pastPurchases.length > 0) {
-          const boughtProductIds = pastPurchases.map((p) => p.productId);
           const preferredCategoryIds = [
             ...new Set(pastPurchases.map((p) => p.categoryId)),
           ];
@@ -112,12 +79,7 @@ export const getSomeProducts = tool(
               categoriesTable,
               eq(productsTable.categoryId, categoriesTable.categoryId)
             )
-            .where(
-              and(
-                inArray(productsTable.categoryId, preferredCategoryIds),
-                notInArray(productsTable.productId, boughtProductIds)
-              )
-            )
+            .where(inArray(productsTable.categoryId, preferredCategoryIds))
             .orderBy(sql`RANDOM()`)
             .limit(5);
         }
@@ -162,15 +124,13 @@ export const getSomeProducts = tool(
   {
     name: "get-random-product-suggestions",
     description: `
-    USE CASE: Open-ended discovery / Window shopping.
-    TRIGGER: User asks "Show me something interesting", "What do you recommend?", or "Give me gift ideas" WITHOUT specific criteria.
-    
+    USE WHEN:
+    - The user asks for broad, open-ended discovery.
+    - Examples: “Show me something nice”, “Any recommendations?”, “Gift ideas?”
+
     BEHAVIOR:
-    - If the user is logged in, this tool automatically prioritizes items matching their past purchase history.
-    - If they are a guest, it returns a random selection of popular items.
-    
-    RESTRICTIONS:
-    - DO NOT use if the user specifies a category (e.g., "flowers"), color, or price. Use 'search-products' for those.
+    - If the customer is logged in, return items related to their past purchases.
+    - If not logged in, return a selection of popular/random products.
     `,
     schema: z.object({}),
   }
@@ -178,6 +138,8 @@ export const getSomeProducts = tool(
 
 export const getSpecificProduct = tool(
   async (inputs: { productId: string }) => {
+    console.log(inputs);
+
     try {
       const rawId = inputs.productId.toString().trim();
       const id = parseInt(rawId);
@@ -222,13 +184,15 @@ export const getSpecificProduct = tool(
   {
     name: "get-product-details",
     description: `
-    USE CASE: Fetching full details for a SPECIFIC product by its ID.
-    TRIGGER: User clicks a product link or asks "Tell me more about the red shoes" (where you already know the ID from context).
-    
-    CRITICAL RULES:
-    1. You MUST have a valid numeric 'productId' from a previous search result.
-    2. DO NOT GUESS IDs. If you don't know the ID, use 'search-products' to find it first.
-    `,
+      USE WHEN:
+      - You already know the product's ID (e.g., from previous search results).
+      - The user asks: “Tell me more about [product name]” and that product has an ID.
+  
+      CRITICAL RULES:
+      - YOU MUST provide a valid numeric productId.
+      - DO NOT guess IDs.
+      - If you don't know the ID → run 'search-products' first.
+      `,
     schema: z.object({
       productId: z
         .union([z.string(), z.number()])
@@ -260,7 +224,6 @@ export const searchProducts = tool(
       const conditions = [];
       conditions.push(gt(similarity, 0.3));
 
-      // 2. Price Filters
       if (minPrice !== undefined) {
         conditions.push(gte(productsTable.price, minPrice.toString()));
       }
@@ -268,38 +231,23 @@ export const searchProducts = tool(
         conditions.push(lte(productsTable.price, maxPrice.toString()));
       }
 
-      let resolvedCategory: string | null = null;
-
       if (category) {
-        const allCategories = await db
+        const categoryMatch = await db
           .select({ name: categoriesTable.name })
-          .from(categoriesTable);
+          .from(categoriesTable)
+          .where(ilike(categoriesTable.name, category))
+          .limit(1);
 
-        let bestMatch = null;
-        let highestScore = 0;
-
-        for (const cat of allCategories) {
-          const score = getSimilarity(category, cat.name);
-          if (score > highestScore) {
-            highestScore = score;
-            bestMatch = cat.name;
-          }
-        }
-
-        if (bestMatch && highestScore > 0.6) {
-          console.log(
-            `Category Normalization: "${category}" -> "${bestMatch}" (Score: ${highestScore.toFixed(2)})`
-          );
-          conditions.push(eq(categoriesTable.name, bestMatch));
-          resolvedCategory = bestMatch;
+        if (categoryMatch.length > 0) {
+          console.log(`Category Filter Applied: ${categoryMatch[0].name}`);
+          conditions.push(eq(categoriesTable.name, categoryMatch[0].name));
         } else {
           console.log(
-            `!!! Category "${category}" not found in DB. Dropping filter to rely on Vector Search.`
+            `Category "${category}" not strictly found. Relying on Vector Search to find relevant items.`
           );
         }
       }
 
-      // 4. Execute Main Search
       const products = await db
         .select({
           id: productsTable.productId,
@@ -334,8 +282,8 @@ export const searchProducts = tool(
         if (maxPrice)
           textConditions.push(lte(productsTable.price, maxPrice.toString()));
 
-        if (resolvedCategory) {
-          textConditions.push(eq(categoriesTable.name, resolvedCategory));
+        if (category) {
+          textConditions.push(ilike(categoriesTable.name, `%${category}%`));
         }
 
         const fallbackProducts = await db
@@ -382,7 +330,10 @@ export const searchProducts = tool(
   },
   {
     name: "search-products",
-    description: `USE CASE: Search with specific criteria (keywords, category, price).`,
+    description: `
+    USE WHEN:
+    - The user specifies ANY search criteria: keywords, category, or price.
+    `,
     schema: z.object({
       query: z.string().describe("The user's search intent keywords."),
       category: z
@@ -432,9 +383,12 @@ export const getAllCategories = tool(
   {
     name: "get-all-categories",
     description: `
-    USE CASE: Fetch a list of all product departments/collections.
-    TRIGGER: User asks "What do you sell?", "Show me your collections", or "Do you have electronics?".
-    `,
+      USE WHEN:
+      - The user asks: “What do you have?”, “Show me your categories”, “What do you sell?”
+  
+      DO NOT USE WHEN:
+      - The user is looking for specific items or keywords. → Use 'search-products'.
+      `,
     schema: z.object({}),
   }
 );
@@ -472,9 +426,17 @@ export const getAllOrders = tool(
   {
     name: "get-all-user-orders",
     description: `
-    USE CASE: Retrieve all orders placed by the authenticated user.
-    TRIGGER: User asks "Show my orders" or "What orders have I placed?".
-    `,
+      USE WHEN:
+      - The user asks: “Show my orders”, “What have I ordered?”, “My order history”.
+  
+      RULES:
+      - The user must be authenticated (user_id available).
+      - Optional: Filter by status if the user specifies one.
+  
+      DO NOT USE FOR:
+      - Fetching single order details → Use 'read-order-details'.
+      - Cancelling orders → Use 'cancel-order'.
+      `,
     schema: z.object({
       status: z
         .enum(["PENDING", "PAID", "SHIPPED", "DELIVERED", "CANCELLED"])
@@ -532,12 +494,17 @@ export const readOrders = tool(
   {
     name: "read-order-details",
     description: `
-    USE CASE: Check the status of a specific order.
-    
-    MANDATORY REQUIREMENT:
-    - You MUST provide a specific 'orderId'.
-    - If the user asks "Show my orders" WITHOUT providing an ID, DO NOT call this tool. Instead, reply asking for the Order ID.
-    `,
+      USE ONLY WHEN:
+      - The user provides a specific, numeric Order ID.
+      - Example: “Where is order #1234?”
+  
+      RULES:
+      - If the user does NOT provide an order ID → Ask them for it.
+      - Do not guess or assume order IDs.
+  
+      DO NOT USE WHEN:
+      - The query is general (“show my orders”). → Use 'get-all-user-orders'.
+      `,
     schema: z.object({
       orderId: z.string().describe("The unique identifier of the order"),
     }),
@@ -591,12 +558,18 @@ export const productsIncludedInOrder = tool(
   {
     name: "read-order-items",
     description: `
-    USE CASE: Retrieve the list of products included in a specific order.
-    
-    MANDATORY REQUIREMENT:
-    - You MUST provide a specific 'orderId'.
-    - If the user asks "Show my orders" WITHOUT providing an ID, DO NOT call this tool. Instead, reply asking for the Order ID.
-    `,
+      USE WHEN:
+      - The user asks what was inside a specific order.
+      - Example: “What items were in order #493?”
+  
+      RULES:
+      - A valid orderId is required.
+      - Do not assume IDs.
+  
+      DO NOT USE WHEN:
+      - The user wants order status → Use 'read-order-details'.
+      - The user wants all orders → Use 'get-all-user-orders'.
+      `,
     schema: z.object({
       orderId: z.string().describe("The unique identifier of the order"),
     }),
@@ -663,13 +636,20 @@ export const cancelOrder = tool(
   {
     name: "cancel-order",
     description: `
-    USE CASE: Cancel a specific order placed by the user.
-    TRIGGER: User asks "I want to cancel my order #1234".
-    
-    CRITICAL RULES:
-    1. You MUST provide a valid 'orderId'.
-    2. Only orders that are not already cancelled can be cancelled.
-    `,
+      USE ONLY WHEN:
+      - The user explicitly confirms cancellation AND
+      - They provided a specific Order ID.
+  
+      MUST FOLLOW 4-STEP CANCELLATION PROTOCOL:
+      1. User expresses intent → You ask for Order ID (if missing).
+      2. Call 'read-order-details' and show the order summary.
+      3. Ask: “Are you sure you want to cancel Order #[ID]? (Yes/No)”
+      4. If user says Yes → Call 'cancel-order'. If No → Do NOT call.
+  
+      DO NOT CALL:
+      - Without explicit confirmation.
+      - For shipped or delivered orders (tool will block, but you must warn user).
+      `,
     schema: z.object({
       orderId: z
         .string()
@@ -742,9 +722,21 @@ export const lookupPolicy = tool(
   {
     name: "consult_policy_handbook",
     description: `
-    USE CASE: Retrieve official business policies.
-    TRIGGER: User asks about Shipping, Returns, Privacy, Payments, or Support.
-    `,
+      USE WHEN:
+      - User asks anything related to:
+        - Shipping / Delivery
+        - Returns / Refunds
+        - Payments
+        - Order issues
+        - Privacy or support topics
+  
+      BEHAVIOR:
+      - Retrieves official policy text from the internal handbook.
+      - Never paraphrase unless necessary.
+  
+      DO NOT USE WHEN:
+      - The question is about product details → Use product tools.
+      `,
     schema: z.object({
       query: z
         .string()

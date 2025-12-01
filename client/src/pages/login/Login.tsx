@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAxios } from "../../service/useAxios";
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { reconnectSocket } from "../../service/socket";
 
 export default function Login() {
   const { fetchData } = useAxios();
@@ -19,6 +20,7 @@ export default function Login() {
       console.log(response.content.token);
 
       localStorage.setItem("token", response.content.token);
+      reconnectSocket();
 
       return response.content;
     } catch (error) {
