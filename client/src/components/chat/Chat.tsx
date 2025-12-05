@@ -1,28 +1,27 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import {
-  MessageCircle,
+  MessageSquare,
   X,
   Send,
-  Bot,
-  RefreshCcw,
-  Sparkles,
   ChevronRight,
-  Zap,
   ExternalLink,
   Minimize2,
   Maximize2,
   ShoppingBag,
-  AlertCircle,
+  ArrowDown,
+  Sparkles,
+  User,
+  RefreshCcw,
 } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
-import { getSocket, resetSocket } from "../../service/socket"; // Removed reconnectSocket import
+import { getSocket, resetSocket } from "../../service/socket";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../../store/userAuthStore";
 import { Socket } from "socket.io-client";
 
+// --- Types ---
 export interface Product {
   id: string | number;
   name: string;
@@ -43,96 +42,170 @@ interface Message {
   isError?: boolean;
 }
 
+interface CartPayload {
+  data: string;
+}
+
 const SUGGESTED_QUESTIONS = [
   "🎁 Gift ideas under 5000",
-  "🍰 Can I order a chocolate cake?",
-  "🚚 Where is my order?",
-  "💳 What are the payment options?",
+  "📦 Track my order",
+  "💳 Payment methods",
 ];
 
-const Chat = () => {
-  const [socket, setSocket] = useState<Socket>(getSocket());
+// --- Components ---
 
+// 1. Product Card (Accessible & Memoized)
+const ProductCard = memo(
+  ({ product, onClick }: { product: Product; onClick: () => void }) => (
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      onClick={onClick}
+      className="min-w-[140px] max-w-[140px] text-left border border-gray-100 rounded-xl overflow-hidden bg-white cursor-pointer hover:border-black hover:shadow-md transition-all duration-300 snap-start flex flex-col group focus:outline-none focus:ring-2 focus:ring-black/10"
+    >
+      <div className="h-24 w-full bg-gray-50 relative overflow-hidden">
+        {product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-300 text-[10px]">
+            No Image
+          </div>
+        )}
+      </div>
+      <div className="p-2.5 flex flex-col flex-1 w-full">
+        <h5 className="text-[11px] font-medium text-gray-900 line-clamp-2 leading-relaxed mb-2 w-full">
+          {product.name}
+        </h5>
+        <div className="mt-auto flex justify-between items-center border-t border-gray-50 pt-2 w-full">
+          <span className="text-[11px] font-bold text-black">
+            {product.price}
+          </span>
+          <ExternalLink
+            size={10}
+            className="text-gray-400 group-hover:text-black transition-colors"
+          />
+        </div>
+      </div>
+    </motion.button>
+  )
+);
+
+const ChatSkeleton = () => (
+  <div className="space-y-6 p-2 animate-pulse">
+    {[1, 2, 3].map((i) => (
+      <div
+        key={i}
+        className={`flex gap-3 ${
+          i % 2 === 0 ? "flex-row-reverse" : "flex-row"
+        }`}
+      >
+        <div className="w-8 h-8 rounded-full bg-gray-100 shrink-0" />
+        <div
+          className={`flex flex-col gap-2 ${
+            i % 2 === 0 ? "items-end" : "items-start"
+          } max-w-[70%]`}
+        >
+          <div className="h-10 w-full rounded-2xl bg-gray-100" />
+          {i === 1 && (
+            <div className="h-24 w-48 rounded-xl bg-gray-50 border border-gray-100" />
+          )}
+          <div className="h-3 w-10 bg-gray-100 rounded-full" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const Chat = () => {
   const navigation = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
+  const [socketKey, setSocketKey] = useState(0);
+  const socketRef = useRef<Socket>(getSocket());
+
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
-
   const [agentStatus, setAgentStatus] = useState<string>("");
   const [isTyping, setIsTyping] = useState<boolean>(false);
-  const [isConnected, setIsConnected] = useState<boolean>(socket.connected);
+
+  const [isConnected, setIsConnected] = useState<boolean>(
+    socketRef.current.connected
+  );
+
   const [fullScreen, setFullScreen] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } =
+      scrollContainerRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isUserScrolledUp = distanceFromBottom > 100;
+    setShowScrollButton(isUserScrolledUp);
+    setIsAtBottom(!isUserScrolledUp);
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior });
+    }
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping, agentStatus, isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 300);
+    if (isAtBottom) {
+      const isStreaming = messages.some((m) => m.isStreaming);
+      scrollToBottom(isStreaming ? "auto" : "smooth");
     }
-  }, [isOpen]);
+  }, [messages, isAtBottom]);
 
-  // FIX: Prevent infinite reconnection loop on page load.
-  // We only sync the local socket state if the global singleton has changed
-  // (e.g., set by Login.tsx). We do NOT call reconnectSocket() here.
   useEffect(() => {
-    if (user) {
-      const currentGlobalSocket = getSocket();
-      if (socket !== currentGlobalSocket) {
-        console.log("🔄 Syncing new socket instance...");
-        setSocket(currentGlobalSocket);
-      }
+    if (isOpen && messages.length === 0) {
+      setIsLoadingHistory(true);
+      const timer = setTimeout(() => setIsLoadingHistory(false), 3000);
+      return () => clearTimeout(timer);
     }
-  }, [user, socket]);
+  }, [isOpen, messages.length]);
 
   useEffect(() => {
-    // 1. Define Session Init Logic
+    const socket = socketRef.current;
+
     const initSession = () => {
       let sessionId = localStorage.getItem("chat_session_id");
       if (!sessionId) {
         sessionId = crypto.randomUUID();
         localStorage.setItem("chat_session_id", sessionId);
       }
-      console.log("🔄 Requesting Chat History Restore for Session:", sessionId);
       socket.emit("restoreChat", { session_id: sessionId });
     };
 
     const onConnect = () => {
-      console.log("✅ Socket Connected via Event Listener");
       setIsConnected(true);
       initSession();
     };
 
-    const onDisconnect = () => {
-      console.log("🔌 Socket Disconnected");
-      setIsConnected(false);
-    };
-
-    const onConnectError = (err: any) => {
-      console.error("❌ Connection Error:", err.message);
-      setIsConnected(false);
-    };
+    const onDisconnect = () => setIsConnected(false);
 
     const onChatHistory = (history: Message[]) => {
-      console.log("📜 Chat history loaded:", history.length, "messages");
-      console.log("History", history);
-
-      const processed = history.map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp),
-      }));
-      setMessages(processed);
+      setTimeout(() => {
+        setMessages(
+          history.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }))
+        );
+        setIsLoadingHistory(false);
+        setIsAtBottom(true);
+      }, 600);
     };
 
     const onAgentState = (data: { status: string }) => {
@@ -140,60 +213,23 @@ const Chat = () => {
       setIsTyping(true);
     };
 
-    const onChatStream = (data: any) => {
-      const textChunk = data.chunk || data.content || "";
+    const onSuggestedProducts = (data: { data: Product[] }) => {
       setAgentStatus("");
       setIsTyping(false);
-
       setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-
-        if (lastMsg && lastMsg.sender === "bot" && lastMsg.isStreaming) {
-          return [
-            ...prev.slice(0, -1),
-            { ...lastMsg, text: lastMsg.text + textChunk },
-          ];
-        }
-
-        return [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            sender: "bot",
-            text: textChunk,
-            timestamp: new Date(),
-            isStreaming: true,
-          },
-        ];
-      });
-    };
-
-    const onSuggestedProducts = (data: {
-      toolName: string;
-      data: Product[];
-    }) => {
-      setAgentStatus("");
-      setIsTyping(false);
-
-      setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.sender === "bot") {
-          const existingProducts = lastMsg.products || [];
-          const newProducts = data.data;
-          const uniqueNewProducts = newProducts.filter(
-            (np) => !existingProducts.some((ep) => ep.id === np.id)
+        const last = prev[prev.length - 1];
+        if (last?.sender === "bot") {
+          const existing = last.products || [];
+          const unique = data.data.filter(
+            (np) => !existing.some((ep) => ep.id === np.id)
           );
+          if (unique.length === 0) return prev;
 
           return [
             ...prev.slice(0, -1),
-            {
-              ...lastMsg,
-              products: [...existingProducts, ...uniqueNewProducts],
-              isStreaming: true,
-            },
+            { ...last, products: [...existing, ...unique], isStreaming: true },
           ];
         }
-
         return [
           ...prev,
           {
@@ -210,14 +246,56 @@ const Chat = () => {
 
     const onOrderCancelled = (data: { data: string }) => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
-      setMessages((prev) => [
-        ...prev,
+      setMessages((p) => [
+        ...p,
         {
           id: Date.now().toString(),
           sender: "bot",
-          text: `✅ **System Update:** ${
-            data.data || "Order cancelled successfully."
-          }`,
+          text: `✅ ${data.data || "Order cancelled."}`,
+          timestamp: new Date(),
+          isStreaming: false,
+        },
+      ]);
+    };
+
+    const onChatStream = (data: { chunk?: string; content?: string }) => {
+      const text = data.chunk || data.content || "";
+      setAgentStatus("");
+      setIsTyping(false);
+
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.sender === "bot" && last.isStreaming) {
+          return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+        }
+        return [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            sender: "bot",
+            text,
+            timestamp: new Date(),
+            isStreaming: true,
+          },
+        ];
+      });
+    };
+
+    const onAddedToCart = (payload: CartPayload) => {
+      let productName = "Item";
+      try {
+        const parsed = JSON.parse(payload.data);
+        productName = parsed.productName || "Item";
+      } catch (e) {
+        console.error("Failed to parse cart payload", e);
+      }
+
+      setMessages((p) => [
+        ...p,
+        {
+          id: Date.now().toString(),
+          sender: "bot",
+          text: `🛒 "${productName}" added to cart.`,
           timestamp: new Date(),
           isStreaming: false,
         },
@@ -227,35 +305,19 @@ const Chat = () => {
     const onChatEnd = (data: { status: string; error?: string }) => {
       setIsTyping(false);
       setAgentStatus("");
-
       setMessages((prev) => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.sender === "bot") {
+        const last = prev[prev.length - 1];
+        if (last?.sender === "bot") {
           const updated = [...prev];
-          const finalMsg = { ...lastMsg, isStreaming: false };
-
-          if (data.status === "error") {
-            finalMsg.text += `\n\n❌ **Error:** ${
-              data.error || "Something went wrong."
-            }`;
-            finalMsg.isError = true;
-          }
-          updated[updated.length - 1] = finalMsg;
+          updated[updated.length - 1] = {
+            ...last,
+            isStreaming: false,
+            text:
+              last.text +
+              (data.status === "error" ? `\n\n❌ ${data.error}` : ""),
+            isError: data.status === "error",
+          };
           return updated;
-        }
-
-        if (data.status === "error") {
-          return [
-            ...prev,
-            {
-              id: Date.now().toString(),
-              sender: "bot",
-              text: `❌ **Error:** ${data.error || "Connection failed."}`,
-              timestamp: new Date(),
-              isStreaming: false,
-              isError: true,
-            },
-          ];
         }
         return prev;
       });
@@ -263,48 +325,45 @@ const Chat = () => {
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
-    socket.on("connect_error", onConnectError);
     socket.on("chatHistory", onChatHistory);
     socket.on("agentState", onAgentState);
     socket.on("chatStream", onChatStream);
+    socket.on("itemAddedToCart", onAddedToCart);
     socket.on("suggestedProducts", onSuggestedProducts);
     socket.on("orderCancelled", onOrderCancelled);
     socket.on("chatEnd", onChatEnd);
 
-    // Immediate connection check
     if (socket.connected) {
-      console.log("⚡ Socket already connected, initializing immediately.");
       setIsConnected(true);
       initSession();
     } else {
-      console.log("⏳ Socket not connected, connecting now...");
       socket.connect();
     }
 
+    // Cleanup
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
-      socket.off("connect_error", onConnectError);
       socket.off("chatHistory", onChatHistory);
       socket.off("agentState", onAgentState);
       socket.off("chatStream", onChatStream);
+      socket.off("itemAddedToCart", onAddedToCart);
       socket.off("suggestedProducts", onSuggestedProducts);
       socket.off("orderCancelled", onOrderCancelled);
       socket.off("chatEnd", onChatEnd);
     };
-  }, [queryClient, socket]);
+  }, [queryClient, user, socketKey]);
 
   const sendMessage = (text: string) => {
     if (!text.trim()) return;
 
-    setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
-
+    setIsAtBottom(true);
     setMessages((prev) => [
-      ...prev,
+      ...prev.map((m) => ({ ...m, isStreaming: false })),
       {
         id: Date.now().toString(),
         sender: "user",
-        text: text,
+        text,
         timestamp: new Date(),
         isStreaming: false,
       },
@@ -314,28 +373,30 @@ const Chat = () => {
     setIsTyping(true);
     setAgentStatus("");
 
-    let session_id = localStorage.getItem("chat_session_id");
-    if (!session_id) {
-      session_id = crypto.randomUUID();
-      localStorage.setItem("chat_session_id", session_id);
+    let sessionId = localStorage.getItem("chat_session_id");
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      localStorage.setItem("chat_session_id", sessionId);
     }
 
-    if (!socket.connected) {
-      console.log("⚠️ Socket disconnected on send, reconnecting...");
-      socket.connect();
-    }
-
-    socket.emit("chatMessage", { message: text, session_id });
+    const socket = socketRef.current;
+    if (!socket.connected) socket.connect();
+    socket.emit("chatMessage", { message: text, session_id: sessionId });
   };
 
   const handleClearChat = () => {
     setMessages([]);
-    resetSocket();
     setIsOpen(false);
+    setIsConnected(false);
+
+    resetSocket();
+
+    socketRef.current = getSocket();
+    setSocketKey((prev) => prev + 1);
+
     setTimeout(() => {
-      setSocket(getSocket());
       setIsOpen(true);
-    }, 500);
+    }, 300);
   };
 
   return (
@@ -343,25 +404,26 @@ const Chat = () => {
       <AnimatePresence>
         {!isOpen && (
           <motion.button
-            initial={{ scale: 0, opacity: 0, rotate: 90 }}
-            animate={{ scale: 1, opacity: 1, rotate: 0 }}
-            exit={{ scale: 0, opacity: 0 }}
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
               setIsOpen(true);
               setFullScreen(false);
             }}
-            className="w-16 h-16 bg-black text-white rounded-full shadow-2xl flex items-center justify-center group hover:bg-gray-900 transition-colors"
+            className="fixed bottom-6 right-6 w-14 h-14 bg-black text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-neutral-800 transition-colors z-50 group"
+            aria-label="Open Chat"
           >
-            <div className="relative">
-              <MessageCircle size={28} />
-              <span
-                className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-black ${
-                  isConnected ? "bg-green-500" : "bg-red-500"
-                }`}
-              />
-            </div>
+            <MessageSquare
+              size={24}
+              strokeWidth={1.5}
+              className="group-hover:scale-110 transition-transform"
+            />
+            {isConnected && (
+              <span className="absolute top-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-[3px] border-white" />
+            )}
           </motion.button>
         )}
       </AnimatePresence>
@@ -374,40 +436,46 @@ const Chat = () => {
               opacity: 1,
               y: 0,
               scale: 1,
-              height: fullScreen ? "calc(100vh - 40px)" : "600px",
-              width: fullScreen ? "calc(100vw - 40px)" : "400px",
+              width: fullScreen ? "100vw" : "min(420px, calc(100vw - 32px))",
+              height: fullScreen
+                ? "100dvh"
+                : "min(700px, calc(100dvh - 100px))",
+              borderRadius: fullScreen ? 0 : "24px",
+              bottom: fullScreen ? 0 : "24px",
+              right: fullScreen ? 0 : "24px",
             }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-            className={`bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 font-sans fixed bottom-4 right-4 z-50`}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            onAnimationComplete={() => inputRef.current?.focus()}
+            className="fixed z-50 bg-white shadow-2xl border border-gray-100 overflow-hidden flex flex-col font-sans"
           >
-            {/* Header */}
-            <div className="bg-white p-4 border-b border-gray-100 flex justify-between items-center z-10 sticky top-0 shadow-xs">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100/50 bg-white/90 backdrop-blur-md sticky top-0 z-10 transition-all">
               <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="w-10 h-10 bg-linear-to-br from-indigo-600 to-purple-600 rounded-full flex items-center justify-center shadow-md">
-                    <Bot className="h-6 w-6 text-white" />
-                  </div>
-                  <span
-                    className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-                      isConnected ? "bg-green-500" : "bg-red-500"
-                    }`}
-                  />
+                <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center text-white shadow-md shadow-gray-200">
+                  <Sparkles size={16} fill="white" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-gray-900 text-sm">
-                    Sales Assistant
+                  <h3 className="font-bold text-sm text-gray-900 leading-none tracking-tight">
+                    Shopping Assistant
                   </h3>
-                  <p className="text-xs text-gray-500">
-                    {isConnected ? "Online" : "Reconnecting..."}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isConnected ? "bg-emerald-500" : "bg-amber-500"
+                      } animate-pulse`}
+                    ></div>
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      {isConnected ? "Online" : "Reconnecting..."}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex gap-1">
+              <div className="flex items-center gap-1 text-gray-400">
                 <button
                   onClick={() => setFullScreen(!fullScreen)}
-                  className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
+                  className="p-2 hover:text-black hover:bg-gray-100 rounded-full transition-colors hidden sm:flex"
+                  title="Toggle Fullscreen"
                 >
                   {fullScreen ? (
                     <Minimize2 size={16} />
@@ -417,219 +485,240 @@ const Chat = () => {
                 </button>
                 <button
                   onClick={handleClearChat}
-                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition"
+                  className="p-2 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
                   title="Reset Chat"
                 >
                   <RefreshCcw size={16} />
                 </button>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-2 text-gray-400 hover:text-black hover:bg-gray-50 rounded-full transition"
+                  className="p-2 hover:text-black hover:bg-gray-100 rounded-full transition-colors"
+                  title="Close Chat"
                 >
                   <X size={20} />
                 </button>
               </div>
             </div>
 
-            {/* Chat Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-gray-50/50 scroll-smooth">
-              {messages.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-6">
-                  <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-2">
-                    <Sparkles className="text-indigo-600" size={32} />
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-5 bg-white scroll-smooth relative"
+            >
+              {isLoadingHistory ? (
+                <ChatSkeleton />
+              ) : messages.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="h-full flex flex-col items-center justify-center text-center p-4"
+                >
+                  <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mb-6 rotate-3">
+                    <Sparkles size={28} className="text-black" />
                   </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900">
-                      How can I help you?
-                    </h4>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Ask about products, orders, or policies.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2 w-full">
+                  <p className="text-sm font-semibold text-gray-900 mb-8">
+                    How can I help you today?
+                  </p>
+                  <div className="flex flex-col gap-2.5 w-full max-w-[260px]">
                     {SUGGESTED_QUESTIONS.map((q, i) => (
-                      <button
+                      <motion.button
                         key={i}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.1 }}
                         onClick={() => sendMessage(q)}
-                        className="text-xs font-medium bg-white border border-gray-200 text-gray-600 hover:border-indigo-500 hover:text-indigo-600 hover:shadow-sm py-3 px-4 rounded-xl transition-all text-left flex items-center justify-between group"
+                        className="text-xs font-medium text-left px-4 py-3.5 border border-gray-100 bg-white shadow-sm rounded-xl hover:border-black hover:shadow-md transition-all text-gray-600 hover:text-black flex justify-between items-center group"
                       >
-                        {q}{" "}
+                        {q}
                         <ChevronRight
                           size={14}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 transition-transform group-hover:translate-x-1"
                         />
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {messages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex w-full ${
-                    msg.sender === "user" ? "justify-end" : "justify-start"
-                  }`}
-                >
-                  <div
-                    className={`flex flex-col max-w-[85%] ${
-                      msg.sender === "user" ? "items-end" : "items-start"
-                    }`}
-                  >
-                    {msg.text && (
+                </motion.div>
+              ) : (
+                <div className="space-y-6">
+                  {messages.map((msg, idx) => (
+                    <motion.div
+                      key={msg.id || idx}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex gap-3 w-full ${
+                        msg.sender === "user" ? "flex-row-reverse" : "flex-row"
+                      }`}
+                    >
                       <div
-                        className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-xs ${
+                        className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm mt-auto transition-transform hover:scale-105 ${
                           msg.sender === "user"
-                            ? "bg-black text-white rounded-tr-sm"
-                            : "bg-white border border-gray-200 text-gray-800 rounded-tl-sm"
-                        } ${
-                          msg.isError
-                            ? "border-red-200 bg-red-50 text-red-800"
-                            : ""
+                            ? "bg-black border-black text-white"
+                            : "bg-white border-gray-200 text-black"
                         }`}
                       >
-                        {msg.isError && (
-                          <AlertCircle size={16} className="inline mr-2 mb-1" />
-                        )}
-                        {msg.sender === "bot" ? (
-                          <MarkdownRenderer content={msg.text} />
+                        {msg.sender === "user" ? (
+                          <User size={14} />
                         ) : (
-                          msg.text
+                          <Sparkles size={14} />
                         )}
                       </div>
-                    )}
 
-                    {msg.products && msg.products.length > 0 && (
-                      <div className="w-full mt-3">
-                        <div className="flex items-center gap-1.5 mb-2 px-1">
-                          <ShoppingBag size={12} className="text-indigo-600" />
-                          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                            Recommendations
-                          </span>
-                        </div>
-                        <div className="flex gap-3 overflow-x-auto pb-4 pt-1 px-1 scrollbar-hide snap-x">
-                          {msg.products.map((product, i) => (
-                            <div
-                              key={product.id || i}
-                              onClick={() => {
-                                if (product.product_path) {
-                                  setIsOpen(false);
-                                  navigation(product.product_path);
-                                }
-                              }}
-                              className="min-w-40 max-w-40 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden shrink-0 snap-start hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
-                            >
-                              <div className="h-28 w-full bg-gray-100 relative overflow-hidden">
-                                {product.image ? (
-                                  <img
-                                    src={product.image}
-                                    alt={product.name}
-                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
-                                    No Image
-                                  </div>
-                                )}
-                              </div>
-                              <div className="p-3">
-                                <h5 className="text-xs font-bold text-gray-900 line-clamp-2 mb-1 h-8">
-                                  {product.name}
-                                </h5>
-                                <div className="flex justify-between items-center mt-2">
-                                  <span className="text-xs font-semibold text-indigo-600">
-                                    {product.price}
-                                  </span>
-                                  <div className="w-6 h-6 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                                    <ExternalLink size={12} />
-                                  </div>
-                                </div>
-                              </div>
+                      <div
+                        className={`flex flex-col max-w-[85%] ${
+                          msg.sender === "user" ? "items-end" : "items-start"
+                        }`}
+                      >
+                        {msg.text && (
+                          <div
+                            className={`px-4 py-3 rounded-2xl text-[13px] leading-relaxed shadow-sm relative group ${
+                              msg.sender === "user"
+                                ? "bg-black text-white rounded-br-sm"
+                                : "bg-gray-50 border border-gray-100 text-gray-800 rounded-bl-sm"
+                            }`}
+                          >
+                            {msg.sender === "bot" ? (
+                              <MarkdownRenderer content={msg.text} />
+                            ) : (
+                              msg.text
+                            )}
+                          </div>
+                        )}
+
+                        {msg.products && msg.products.length > 0 && (
+                          <div className="mt-3 w-full">
+                            <div className="flex items-center gap-1.5 mb-2 pl-1">
+                              <ShoppingBag
+                                size={10}
+                                className="text-gray-400"
+                              />
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                Recommended
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                            <div className="flex gap-3 overflow-x-auto pb-4 pt-1 px-1 scrollbar-hide snap-x -ml-1">
+                              {msg.products.map((product) => (
+                                <ProductCard
+                                  key={product.id}
+                                  product={product}
+                                  onClick={() =>
+                                    product.product_path &&
+                                    (setFullScreen(false),
+                                    navigation(product.product_path))
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
-                    <span className="text-[10px] text-gray-400 mt-1 px-1">
-                      {new Date(msg.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-
-              {isTyping && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex justify-start items-center gap-2"
-                >
-                  <div className="w-8 h-8 rounded-full bg-white border border-gray-100 flex items-center justify-center shadow-sm">
-                    <Bot size={16} className="text-indigo-600 animate-pulse" />
-                  </div>
-                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-3 h-10">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                      <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></span>
-                    </div>
-
-                    {agentStatus && (
-                      <>
-                        <div className="w-px h-4 bg-gray-200 mx-1"></div>
-                        <span className="text-xs font-medium text-gray-500 animate-pulse">
-                          {agentStatus}
+                        <span
+                          className={`text-[10px] text-gray-300 mt-1 px-1 transition-opacity duration-300 ${
+                            msg.sender === "user" ? "text-right" : "text-left"
+                          }`}
+                        >
+                          {new Date(msg.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
-                      </>
-                    )}
-                  </div>
-                </motion.div>
-              )}
+                      </div>
+                    </motion.div>
+                  ))}
 
-              <div ref={messagesEndRef} />
+                  {isTyping && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-end gap-3"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm">
+                        <Sparkles size={14} />
+                      </div>
+                      <div className="px-4 py-3 bg-gray-50 rounded-2xl rounded-bl-sm border border-gray-100 flex items-center gap-1 h-10 shadow-sm">
+                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                        <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                        {agentStatus && (
+                          <div className="flex items-center ml-2 border-l border-gray-300 pl-2">
+                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                              {agentStatus}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                  <div ref={messagesEndRef} className="h-px" />
+                </div>
+              )}
             </div>
 
-            {/* Input Area */}
-            <div className="p-4 bg-white border-t border-gray-100">
-              <div className="relative flex items-end gap-2 bg-gray-50 rounded-2xl border border-transparent focus-within:border-indigo-200 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50 transition-all p-2">
+            <AnimatePresence>
+              {showScrollButton && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  onClick={() => scrollToBottom()}
+                  className="absolute bottom-30 right-6 p-3 bg-white border border-gray-200 text-black rounded-full shadow-lg z-20 hover:bg-gray-50 hover:scale-105 transition-all"
+                  aria-label="Scroll to bottom"
+                >
+                  <ArrowDown size={18} />
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-black opacity-20"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-black"></span>
+                  </span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            <div className="p-4 bg-white/90 backdrop-blur-md border-t border-gray-100 z-10">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  sendMessage(input);
+                }}
+                className="relative flex items-center gap-2 group"
+              >
                 <input
                   ref={inputRef}
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && !e.shiftKey && sendMessage(input)
+                  disabled={
+                    !isConnected &&
+                    !messages.length &&
+                    !input &&
+                    !isLoadingHistory
                   }
-                  disabled={!isConnected && !messages.length && !input}
                   placeholder={
-                    isConnected ? "Ask anything..." : "Connecting..."
+                    isLoadingHistory
+                      ? "Loading history..."
+                      : "Type a message..."
                   }
-                  className="w-full bg-transparent border-none focus:ring-0 outline-0 text-sm py-2 px-3 text-gray-800 placeholder-gray-400"
+                  className="w-full bg-white border border-gray-200 group-hover:border-gray-300  rounded-full pl-5 pr-12 py-3.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-100 transition-all shadow-sm"
                   autoComplete="off"
                 />
                 <button
-                  onClick={() => sendMessage(input)}
+                  type="submit"
                   disabled={!input.trim() || !isConnected}
-                  className={`p-2.5 rounded-xl shrink-0 transition-all duration-200 flex items-center justify-center ${
-                    input.trim() && isConnected
-                      ? "bg-black text-white shadow-md hover:bg-gray-800 hover:scale-105 active:scale-95"
-                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  className={`absolute right-2 p-2 rounded-full transition-all duration-300 ${
+                    input.trim()
+                      ? "bg-black text-white hover:scale-105 hover:shadow-lg"
+                      : "bg-transparent text-gray-300"
                   }`}
+                  aria-label="Send message"
                 >
-                  <Send size={18} />
+                  <Send size={16} />
                 </button>
-              </div>
-              <div className="text-center mt-2 flex items-center justify-center gap-1">
-                <Zap size={10} className="text-indigo-500 fill-indigo-500" />
-                <p className="text-[10px] text-gray-400">
-                  Powered by{" "}
-                  <span className="font-semibold text-gray-500">UshanAI</span>
-                </p>
+              </form>
+              <div className="text-center mt-2.5 flex items-center justify-center gap-1.5 opacity-60">
+                <span className="text-[9px] text-gray-400 font-medium">
+                  Powered by
+                </span>
+                <span className="text-[9px] font-bold text-gray-900 tracking-wide">
+                  UshanAI
+                </span>
               </div>
             </div>
           </motion.div>

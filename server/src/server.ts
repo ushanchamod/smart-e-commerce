@@ -2,8 +2,7 @@ import app from "./app";
 import dotenv from "dotenv";
 dotenv.config();
 
-// FIX: Ensure these imports are present
-import { createOwnerIfNotExists, testDbConnection, db } from "./db";
+import { createOwnerIfNotExists, testDbConnection } from "./db";
 
 import http from "http";
 import { Server } from "socket.io";
@@ -11,7 +10,6 @@ import { getChatHistory, getRunnable } from "./service/agent/agent";
 import {
   HumanMessage,
   AIMessage,
-  ToolMessage,
   AIMessageChunk,
 } from "@langchain/core/messages";
 import z from "zod";
@@ -38,6 +36,8 @@ const getStatusMessage = (toolName: string): string => {
       return "Processing cancellation...";
     case "consult_policy_handbook":
       return "Checking store policies...";
+    case "add-item-to-cart":
+      return "Updating your cart...";
     default:
       return "Thinking...";
   }
@@ -69,17 +69,13 @@ const startServer = async () => {
             token,
             process.env.JWT_SECRET as string
           ) as JWTPayloadType;
-
-          console.log(
-            `✅ Auth success: ${socket.id} (${user.email || "User"})`
-          );
         } else {
           console.log(
-            `ℹ️ No auth token provided. Connecting as Guest: ${socket.id}`
+            `!!! No auth token provided. Connecting as Guest: ${socket.id}`
           );
         }
       } catch (err: any) {
-        console.error(`❌ Auth failed for ${socket.id}:`, err.message);
+        console.error(`!!! Auth failed for ${socket.id}:`, err.message);
         socket.disconnect();
         return;
       }
@@ -88,11 +84,14 @@ const startServer = async () => {
         "search-products",
         "get-random-product-suggestions",
         "get-product-details",
+        "read-order-details",
+        "read-order-items",
+        "get-all-user-orders",
       ];
 
       socket.on("restoreChat", async (data: { session_id: string }) => {
         const threadId = data.session_id || socket.id;
-        console.log(`🔄 Restoring chat for thread: ${threadId}`);
+        console.log(`Restoring chat for thread: ${threadId}`);
 
         try {
           const rawHistory = await getChatHistory(threadId);
@@ -111,7 +110,6 @@ const startServer = async () => {
               msg instanceof AIMessageChunk ||
               msg instanceof AIMessage
             ) {
-              // Even if text is empty (tool call), we push it so we can attach products later
               formattedHistory.push({
                 id: "hist_" + Math.random().toString(36).substr(2, 9),
                 sender: "bot",
@@ -123,10 +121,8 @@ const startServer = async () => {
             }
           }
 
-          // Filter out "Ghost" messages (Empty text AND No products)
           const cleanHistory = formattedHistory.filter((m) => {
             if (m.sender === "user") return true;
-            // Keep bot message if it has text OR has attached products
             if (m.sender === "bot") {
               const hasText = m.text && m.text.trim().length > 0;
               const hasProducts = m.products && m.products.length > 0;
@@ -147,13 +143,10 @@ const startServer = async () => {
         async (data: { message: string; session_id: string }) => {
           const userMessage = data.message || "";
 
-          // FIX: Thread Persistence Logic
-          // Start with the session ID provided by frontend, or fallback to socket ID
-          let threadId = data.session_id || socket.id;
+          const threadId = data.session_id || socket.id;
 
           const agent = await getRunnable();
 
-          // Prepare configurable with the correct thread_id
           const configurable = {
             thread_id: threadId,
             user_id: user?.userId,
@@ -161,8 +154,6 @@ const startServer = async () => {
           };
 
           try {
-            console.log(`📩 Processing for thread ${threadId}: ${userMessage}`);
-
             const eventStream = await agent.streamEvents(
               { messages: [new HumanMessage(userMessage)], llmCalls: 0 },
               {
@@ -193,7 +184,7 @@ const startServer = async () => {
               }
 
               if (event.event === "on_tool_end") {
-                console.log(`🛠️ Tool finished: ${event.name}`);
+                console.log(`DONE TOOL: Tool finished: ${event.name}`);
 
                 if (UI_WIDGET_TOOLS.includes(event.name)) {
                   try {
@@ -218,6 +209,12 @@ const startServer = async () => {
                       data: event.data.output,
                     });
                   }
+
+                  if (event.name === "add-item-to-cart") {
+                    socket.emit("itemAddedToCart", {
+                      data: event.data.output,
+                    });
+                  }
                 } catch (e) {
                   console.error("Error emitting orderCancelled event:", e);
                 }
@@ -225,9 +222,9 @@ const startServer = async () => {
             }
 
             socket.emit("chatEnd", { status: "success" });
-            console.log("✅ Stream finished");
+            console.log("DONE: Stream finished");
           } catch (error: any) {
-            console.error("❌ Error in agent execution:", error.message);
+            console.error("!!! Error in agent execution:", error.message);
 
             socket.emit("chatEnd", {
               status: "error",
@@ -238,7 +235,7 @@ const startServer = async () => {
       );
 
       socket.on("disconnect", () => {
-        console.log(`🔌 Client disconnected: ${socket.id}`);
+        console.log(`DISCONNECTED: Client disconnected: ${socket.id}`);
       });
     });
 
@@ -246,7 +243,7 @@ const startServer = async () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error("❌ Failed to start server:", err);
+    console.error("!!! Failed to start server:", err);
     process.exit(1);
   }
 };

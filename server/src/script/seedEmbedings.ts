@@ -51,14 +51,14 @@ async function generateProductEmbeddings() {
         .set({ embedding: vector })
         .where(eq(productsTable.productId, product.productId));
 
-      console.log(`✅ Updated: ${product.name}`);
+      console.log(`DONE Updated: ${product.name}`);
     } catch (error) {
-      console.error(`❌ Failed to embed ${product.name}:`, error);
+      console.error(`!!! Failed to embed ${product.name}:`, error);
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
-  console.log("🎉 Embedding generation complete!");
+  console.log("DONE Embedding generation complete!");
   process.exit(0);
 }
 

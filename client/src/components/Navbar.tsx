@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import Cart from "./Cart";
 import { useUI } from "../lib/uiContext";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { ShoppingCart, Menu, X, Store, LogOut } from "lucide-react";
 import { useAuthStore } from "../store/userAuthStore";
 import { useAxios } from "../service/useAxios";
-import { resetSocket } from "../service/socket"; // Import this
+import { resetSocket } from "../service/socket";
 
 const NAV_LINKS = [
   { to: "/", label: "All Products" },
@@ -15,12 +15,11 @@ const NAV_LINKS = [
 function Navbar() {
   const { fetchData } = useAxios();
   const user = useAuthStore((s) => s.user);
-  const navigate = useNavigate();
   const { cartOpen, setCartOpen } = useUI();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
 
-  const cartItemCount = 0; // In a real app, this should come from cart store/query
+  const cartItemCount = 0;
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -43,11 +42,10 @@ function Navbar() {
       localStorage.removeItem("token");
       localStorage.removeItem("chat_session_id");
 
-      // FIX: Disconnect socket explicitly
       resetSocket();
 
       useAuthStore.getState().logout();
-      navigate("/");
+      window.location.href = "/";
     }
   };
 
@@ -65,7 +63,7 @@ function Navbar() {
               <Store size={20} />
             </div>
             <h2 className="text-xl font-bold text-gray-800 tracking-tight">
-              E-Shop
+              UC Gift
             </h2>
           </NavLink>
 

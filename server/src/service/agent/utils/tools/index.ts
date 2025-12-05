@@ -1,5 +1,6 @@
 import { StructuredTool } from "langchain";
 import {
+  addItemToCart,
   cancelOrder,
   getAllCategories,
   getAllOrders,
@@ -21,6 +22,7 @@ export const tools = [
   readOrders,
   productsIncludedInOrder,
   cancelOrder,
+  addItemToCart,
 ];
 
 export const toolsByName: Record<string, StructuredTool> = Object.fromEntries(

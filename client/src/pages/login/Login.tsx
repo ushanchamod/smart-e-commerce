@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAxios } from "../../service/useAxios";
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { reconnectSocket } from "../../service/socket";
+import { reconnectSocket, resetSocket } from "../../service/socket";
 
 export default function Login() {
   const { fetchData } = useAxios();
@@ -32,6 +32,8 @@ export default function Login() {
   const { mutate: handleSubmit, isPending: loading } = useMutation({
     mutationFn: login,
     onSuccess: () => {
+      localStorage.removeItem("chat_session_id");
+      resetSocket();
       document.location.href = "/";
     },
     onError: (error) => {

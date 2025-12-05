@@ -4,6 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { db } from "../../../../db";
 import {
+  cartItemsTable,
   categoriesTable,
   documentsTable,
   orderItemsTable,
@@ -138,8 +139,6 @@ export const getSomeProducts = tool(
 
 export const getSpecificProduct = tool(
   async (inputs: { productId: string }) => {
-    console.log(inputs);
-
     try {
       const rawId = inputs.productId.toString().trim();
       const id = parseInt(rawId);
@@ -239,7 +238,6 @@ export const searchProducts = tool(
           .limit(1);
 
         if (categoryMatch.length > 0) {
-          console.log(`Category Filter Applied: ${categoryMatch[0].name}`);
           conditions.push(eq(categoriesTable.name, categoryMatch[0].name));
         } else {
           console.log(
@@ -661,8 +659,6 @@ export const cancelOrder = tool(
 export const lookupPolicy = tool(
   async ({ query }: { query: string }) => {
     try {
-      console.log(`🔍 Policy Lookup: "${query}"`);
-
       const queryVector = await embeddings.embedQuery(query);
       const similarity = sql<number>`1 - (${cosineDistance(
         documentsTable.embedding,
@@ -741,6 +737,109 @@ export const lookupPolicy = tool(
       query: z
         .string()
         .describe("The specific keyword (e.g. 'delivery', 'return')."),
+    }),
+  }
+);
+
+export const addItemToCart = tool(
+  async (params, runOpts: RunnableConfig) => {
+    const userId = runOpts.configurable?.user_id;
+    const { productId, quantity } = params;
+
+    if (!userId) {
+      return "Error: User not authenticated. Cannot modify cart.";
+    }
+
+    const pId = Number(productId);
+    const qty = Number(quantity);
+
+    if (isNaN(pId)) return "Error: Invalid Product ID.";
+    if (isNaN(qty) || qty <= 0) return "Error: Quantity must be at least 1.";
+
+    try {
+      const product = await db
+        .select({ name: productsTable.name, price: productsTable.price })
+        .from(productsTable)
+        .where(eq(productsTable.productId, pId))
+        .limit(1);
+
+      if (!product.length) {
+        return `Error: Product with ID ${pId} does not exist.`;
+      }
+
+      const productName = product[0].name;
+
+      const existingCartItem = await db
+        .select()
+        .from(cartItemsTable)
+        .where(
+          and(
+            eq(cartItemsTable.productId, pId),
+            eq(cartItemsTable.userId, userId)
+          )
+        );
+
+      let resultItem;
+      let actionType = "added";
+
+      if (existingCartItem.length > 0) {
+        actionType = "updated";
+        const updatedQuantity = existingCartItem[0].quantity + qty;
+        const result = await db
+          .update(cartItemsTable)
+          .set({ quantity: updatedQuantity })
+          .where(
+            and(
+              eq(cartItemsTable.productId, pId),
+              eq(cartItemsTable.userId, userId)
+            )
+          )
+          .returning();
+        resultItem = result[0];
+      } else {
+        const result = await db
+          .insert(cartItemsTable)
+          .values({
+            userId: userId,
+            productId: pId,
+            quantity: qty,
+          })
+          .returning();
+        resultItem = result[0];
+      }
+
+      return JSON.stringify({
+        success: true,
+        message: `Successfully ${actionType} ${productName} to cart.`,
+        productName: productName,
+        quantityAdded: qty,
+        currentCartTotalQuantity: resultItem.quantity,
+      });
+    } catch (error) {
+      console.error("Tool Error (addItemToCart):", error);
+      return "Error: Internal server error while adding item to cart. Please ask user to try again.";
+    }
+  },
+  {
+    name: "add-item-to-cart",
+    description: `
+      USE WHEN:
+      - The user wants to add a specific product to their shopping cart.
+      - Example: “Add product #1234 to my cart”, "Add two of those to cart".
+
+      RULES:
+      - User must be authenticated.
+      - A valid productId and quantity are required. 
+    `,
+    schema: z.object({
+      productId: z
+        .union([z.string(), z.number()])
+        .describe("The unique numeric ID of the product"),
+      quantity: z
+        .number()
+        .int()
+        .positive()
+        .describe("The quantity to add (default to 1 if not specified)"),
     }),
   }
 );

@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 type User = {
   id: number;
+  token: string | null;
 };
 
 interface AuthState {

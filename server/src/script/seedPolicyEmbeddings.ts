@@ -17,17 +17,17 @@ const embeddings = new OpenAIEmbeddings({
 });
 
 async function generatePolicyEmbeddings() {
-  console.log("📜 Starting Policy Document Embedding...");
+  console.log("Starting Policy Document Embedding...");
 
   const docs = await db
     .select()
     .from(documentsTable)
     .where(isNull(documentsTable.embedding));
 
-  console.log(`📦 Found ${docs.length} documents to process.`);
+  console.log(`Found ${docs.length} documents to process.`);
 
   if (docs.length === 0) {
-    console.log("✅ All documents are already embedded. No action needed.");
+    console.log("DONE All documents are already embedded. No action needed.");
     process.exit(0);
   }
 
@@ -42,9 +42,9 @@ async function generatePolicyEmbeddings() {
         .set({ embedding: vector })
         .where(eq(documentsTable.id, doc.id));
 
-      console.log(`✅ Embedded Document ID ${doc.id}`);
+      console.log(`DONE Embedded Document ID ${doc.id}`);
     } catch (error) {
-      console.error(`❌ Failed to embed Document ID ${doc.id}:`, error);
+      console.error(`!!! Failed to embed Document ID ${doc.id}:`, error);
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

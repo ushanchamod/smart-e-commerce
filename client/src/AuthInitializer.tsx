@@ -21,6 +21,7 @@ export function AuthInitializer() {
 
         setUser({
           id: resMe?.content.data.userId,
+          token: null,
         });
       } catch (error: unknown) {
         console.error("Failed to fetch user:", error);

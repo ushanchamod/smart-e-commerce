@@ -30,7 +30,5 @@ export async function getChatHistory(threadId: string) {
 
   const state = await agent.getState(config);
 
-  console.log(state);
-
   return state.values.messages || [];
 }

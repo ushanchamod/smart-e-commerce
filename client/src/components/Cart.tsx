@@ -137,9 +137,6 @@ function Cart({ closeCart }: { closeCart: () => void }) {
 
 export default Cart;
 
-/* ----------------------------------------------------
-   CART ITEM COMPONENT
------------------------------------------------------ */
 const CartItem = ({ item }: { item: CartItemProps }) => {
   const { fetchData } = useAxios();
   const queryClient = useQueryClient();
