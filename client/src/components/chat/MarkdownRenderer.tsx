@@ -53,7 +53,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({
         style={atomDark}
         language={lang}
         PreTag="pre"
-        className="p-3! text-xs! font-mono! leading-relaxed! overflow-x-auto! bg-transparent!"
+        customStyle={{
+          padding: "12px",
+          fontSize: "12px",
+          fontFamily: "monospace",
+          lineHeight: "1.5",
+          overflowX: "auto",
+          background: "transparent",
+        }}
       >
         {code}
       </SyntaxHighlighter>

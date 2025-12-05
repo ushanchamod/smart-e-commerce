@@ -5,6 +5,7 @@ import {
   categoryRouter,
   orderRouter,
   productRouter,
+  agentRoutes,
 } from "./routes";
 import cors from "cors";
 
@@ -37,5 +38,6 @@ app.use("/auth", authRouter);
 app.use("/categories", categoryRouter);
 app.use("/products", productRouter);
 app.use("/orders", orderRouter);
+app.use("/agent", agentRoutes);
 
 export default app;

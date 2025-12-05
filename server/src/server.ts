@@ -15,6 +15,10 @@ import {
 import z from "zod";
 import { JWTPayloadType } from "./dto";
 import jwt from "jsonwebtoken";
+import { chatRateLimiter, burstRateLimiter } from "./service/agent/utils/rateLimiter";
+import { logger } from "./service/agent/utils/logger";
+import { validateMessage, validateThreadId } from "./service/agent/utils/validator";
+import { metrics } from "./service/agent/utils/metrics";
 
 export const contextSchema = z.object({
   userName: z.string(),
@@ -73,11 +77,16 @@ const startServer = async () => {
           console.log(
             `!!! No auth token provided. Connecting as Guest: ${socket.id}`
           );
+          // Allow guest connections to proceed
         }
       } catch (err: any) {
         console.error(`!!! Auth failed for ${socket.id}:`, err.message);
-        socket.disconnect();
-        return;
+        // Only disconnect if token was provided but invalid
+        // Allow guests without tokens to connect
+        if (token) {
+          socket.disconnect();
+          return;
+        }
       }
 
       const UI_WIDGET_TOOLS = [
@@ -91,33 +100,43 @@ const startServer = async () => {
 
       socket.on("restoreChat", async (data: { session_id: string }) => {
         const threadId = data.session_id || socket.id;
-        console.log(`Restoring chat for thread: ${threadId}`);
+        
+        if (!validateThreadId(threadId)) {
+          logger.warn("Invalid thread ID in restoreChat", { threadId });
+          socket.emit("chatHistory", []);
+          return;
+        }
+
+        logger.debug("Restoring chat history", { threadId, userId: user?.userId });
 
         try {
           const rawHistory = await getChatHistory(threadId);
           const formattedHistory: any[] = [];
+          let messageTimestamp = Date.now();
 
           for (const msg of rawHistory) {
             if (msg instanceof HumanMessage) {
               formattedHistory.push({
-                id: "hist_" + Math.random().toString(36).substr(2, 9),
+                id: `hist_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 sender: "user",
                 text: typeof msg.content === "string" ? msg.content : "",
-                timestamp: new Date(),
+                timestamp: new Date(messageTimestamp),
                 isStreaming: false,
               });
+              messageTimestamp += 1000; // Increment timestamp for next message
             } else if (
               msg instanceof AIMessageChunk ||
               msg instanceof AIMessage
             ) {
               formattedHistory.push({
-                id: "hist_" + Math.random().toString(36).substr(2, 9),
+                id: `hist_${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 sender: "bot",
                 text: typeof msg.content === "string" ? msg.content : "",
-                timestamp: new Date(),
+                timestamp: new Date(messageTimestamp),
                 isStreaming: false,
                 products: [],
               });
+              messageTimestamp += 1000; // Increment timestamp for next message
             }
           }
 
@@ -131,27 +150,110 @@ const startServer = async () => {
             return false;
           });
 
-          console.log(`📤 Sending ${cleanHistory.length} recovered messages.`);
+          logger.info("Chat history restored", {
+            threadId,
+            messageCount: cleanHistory.length,
+          });
           socket.emit("chatHistory", cleanHistory);
         } catch (error) {
-          console.error("Failed to restore history:", error);
+          logger.error("Failed to restore chat history", error, { threadId });
+          socket.emit("chatHistory", []);
         }
       });
 
       socket.on(
         "chatMessage",
         async (data: { message: string; session_id: string }) => {
-          const userMessage = data.message || "";
-
+          const requestStartTime = Date.now();
           const threadId = data.session_id || socket.id;
+          const identifier = user?.userId?.toString() || socket.id;
 
-          const agent = await getRunnable();
+          // Validate thread ID
+          if (!validateThreadId(threadId)) {
+            logger.warn("Invalid thread ID", { threadId, socketId: socket.id });
+            socket.emit("chatEnd", {
+              status: "error",
+              error: "Invalid session ID.",
+            });
+            return;
+          }
+
+          // Validate and sanitize message
+          const validation = validateMessage(data.message || "");
+          if (!validation.valid) {
+            logger.warn("Invalid message", {
+              threadId,
+              error: validation.error,
+            });
+            socket.emit("chatEnd", {
+              status: "error",
+              error: validation.error || "Invalid message.",
+            });
+            return;
+          }
+
+          const userMessage = validation.sanitized!;
+
+          // Rate limiting
+          const rateLimitCheck = chatRateLimiter.check(identifier);
+          const burstCheck = burstRateLimiter.check(identifier);
+
+          if (!rateLimitCheck.allowed || !burstCheck.allowed) {
+            const retryAfter = rateLimitCheck.retryAfter || burstCheck.retryAfter;
+            logger.rateLimitExceeded(
+              identifier,
+              !rateLimitCheck.allowed ? "chat" : "burst"
+            );
+            socket.emit("chatEnd", {
+              status: "error",
+              error: `Rate limit exceeded. Please try again in ${retryAfter} seconds.`,
+            });
+            return;
+          }
+
+          logger.agentStart(threadId, user?.userId);
+
+          let agent;
+          try {
+            agent = await getRunnable();
+          } catch (error: any) {
+            logger.agentError(threadId, error, { phase: "initialization" });
+            socket.emit("chatEnd", {
+              status: "error",
+              error: "Agent initialization failed. Please try again.",
+            });
+            metrics.recordRequest(
+              Date.now() - requestStartTime,
+              0,
+              [],
+              true
+            );
+            return;
+          }
 
           const configurable = {
             thread_id: threadId,
             user_id: user?.userId,
             user_email: user?.email,
           };
+
+          // Set timeout for agent execution (5 minutes)
+          const timeoutId = setTimeout(() => {
+            logger.warn("Agent execution timeout", { threadId });
+            socket.emit("chatEnd", {
+              status: "error",
+              error: "Request timeout. The operation took too long.",
+            });
+            metrics.recordRequest(
+              Date.now() - requestStartTime,
+              0,
+              [],
+              true
+            );
+          }, 300000);
+
+          let llmCallCount = 0;
+          const toolCalls: string[] = [];
 
           try {
             const eventStream = await agent.streamEvents(
@@ -170,6 +272,7 @@ const startServer = async () => {
               }
 
               if (event.event === "on_chat_model_stream") {
+                llmCallCount++;
                 const chunk = event.data.chunk;
                 const token =
                   chunk && typeof chunk.content === "string"
@@ -184,7 +287,11 @@ const startServer = async () => {
               }
 
               if (event.event === "on_tool_end") {
-                console.log(`DONE TOOL: Tool finished: ${event.name}`);
+                toolCalls.push(event.name);
+                logger.debug("Tool execution completed", {
+                  toolName: event.name,
+                  threadId,
+                });
 
                 if (UI_WIDGET_TOOLS.includes(event.name)) {
                   try {
@@ -221,14 +328,27 @@ const startServer = async () => {
               }
             }
 
+            clearTimeout(timeoutId);
+            const duration = Date.now() - requestStartTime;
             socket.emit("chatEnd", { status: "success" });
-            console.log("DONE: Stream finished");
+            
+            logger.agentComplete(threadId, duration, llmCallCount);
+            metrics.recordRequest(duration, llmCallCount, toolCalls, false);
           } catch (error: any) {
-            console.error("!!! Error in agent execution:", error.message);
+            clearTimeout(timeoutId);
+            const duration = Date.now() - requestStartTime;
+            
+            logger.agentError(threadId, error, {
+              duration,
+              llmCalls: llmCallCount,
+            });
+            metrics.recordRequest(duration, llmCallCount, toolCalls, true);
 
             socket.emit("chatEnd", {
               status: "error",
-              error: error.message,
+              error:
+                error.message ||
+                "An unexpected error occurred. Please try again.",
             });
           }
         }

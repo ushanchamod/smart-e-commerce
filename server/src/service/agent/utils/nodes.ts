@@ -3,11 +3,15 @@ import {
   isAIMessage,
   ToolMessage,
   BaseMessage,
+  AIMessage,
 } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { toolsByName } from "./tools";
 import { MessagesStateType } from "./state";
 import { modelWithTools } from "./model";
+import { logger } from "./logger";
+import { llmCircuitBreaker } from "./circuitBreaker";
+import { retryWithBackoff, defaultRetryConfig } from "./retry";
 
 const MAX_LOOPS = 6;
 
@@ -107,14 +111,15 @@ export async function llmCall(
   const currentCalls = state.llmCalls ?? 0;
 
   if (currentCalls > MAX_LOOPS) {
-    console.log("!!! Max loops hit, returning error.");
+    logger.warn("Max loops exceeded", {
+      currentCalls,
+      threadId: (config.configurable as any)?.thread_id,
+    });
     return {
       messages: [
-        {
-          role: "assistant",
-          content:
-            "I apologize, but I'm having trouble retrieving the information. Could you please rephrase your request?",
-        },
+        new AIMessage(
+          "I apologize, but I'm having trouble retrieving the information. Could you please rephrase your request?"
+        ),
       ],
       llmCalls: currentCalls,
     };
@@ -131,17 +136,64 @@ export async function llmCall(
   `;
 
   const recentMessages = getTrimmedMessages(state.messages);
-  console.log(`🧠 Context Size: ${recentMessages.length} messages`);
+  const threadId = (config.configurable as any)?.thread_id;
 
-  const result = await modelWithTools.invoke(
-    [new SystemMessage(promptWithDate), ...recentMessages],
-    config
-  );
+  logger.debug("LLM call initiated", {
+    threadId,
+    contextSize: recentMessages.length,
+    llmCalls: currentCalls,
+  });
 
-  return {
-    messages: [result],
-    llmCalls: currentCalls + 1,
-  };
+  const startTime = Date.now();
+
+  try {
+    const result = await llmCircuitBreaker.execute(
+      () =>
+        retryWithBackoff(
+          () =>
+            modelWithTools.invoke(
+              [new SystemMessage(promptWithDate), ...recentMessages],
+              config
+            ),
+          defaultRetryConfig
+        ),
+      async () => {
+        logger.error("LLM circuit breaker open", { threadId });
+        return new AIMessage(
+          "I'm experiencing some technical difficulties right now. Please try again in a moment, or feel free to browse our products directly."
+        );
+      }
+    );
+
+    const duration = Date.now() - startTime;
+    logger.debug("LLM call completed", {
+      threadId,
+      duration,
+      hasToolCalls: result.tool_calls && result.tool_calls.length > 0,
+    });
+
+    return {
+      messages: [result],
+      llmCalls: currentCalls + 1,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error("LLM call failed", error, {
+      threadId,
+      duration,
+      llmCalls: currentCalls,
+    });
+
+    // Return graceful error message
+    return {
+      messages: [
+        new AIMessage(
+          "I apologize, but I encountered an error processing your request. Please try again or rephrase your question."
+        ),
+      ],
+      llmCalls: currentCalls + 1,
+    };
+  }
 }
 
 export async function toolNode(
@@ -156,35 +208,54 @@ export async function toolNode(
 
   const outputs: ToolMessage[] = [];
 
-  for (const toolCall of last.tool_calls ?? []) {
+  const threadId = (config.configurable as any)?.thread_id;
+  const toolCalls = last.tool_calls ?? [];
+
+  for (const toolCall of toolCalls) {
+    const toolStartTime = Date.now();
+
     try {
       const tool = toolsByName[toolCall.name];
-      if (!tool) throw new Error(`Tool not found`);
+      if (!tool) {
+        throw new Error(`Tool "${toolCall.name}" not found`);
+      }
+
+      logger.toolCall(toolCall.name, threadId || "unknown");
 
       const observation = await tool.invoke(toolCall.args, config);
+      const duration = Date.now() - toolStartTime;
 
-      const memoryContent = observation;
+      logger.toolCall(toolCall.name, threadId || "unknown", duration);
 
       outputs.push(
         new ToolMessage({
           tool_call_id: toolCall.id!,
-          content: memoryContent,
+          content: observation,
           name: toolCall.name,
         })
       );
     } catch (error: any) {
-      console.error(`Tool execution failed for ${toolCall.name}:`, error);
+      const duration = Date.now() - toolStartTime;
+      logger.toolError(toolCall.name, threadId || "unknown", error);
+
+      // Provide user-friendly error message
+      const errorMessage =
+        error.message && error.message.length < 200
+          ? error.message
+          : "An unexpected error occurred";
 
       outputs.push(
         new ToolMessage({
           tool_call_id: toolCall.id!,
-          content: `Error: The tool failed to execute. Details: ${error.message}. Please apologize to the user.`,
+          content: `Error: ${errorMessage}. Please apologize to the user and suggest they try again or rephrase their request.`,
           name: toolCall.name,
-          additional_kwargs: { error: true },
+          additional_kwargs: { error: true, duration },
         })
       );
     }
   }
+
+  return { messages: outputs };
   return { messages: outputs };
 }
 

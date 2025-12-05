@@ -52,9 +52,6 @@ const SUGGESTED_QUESTIONS = [
   "💳 Payment methods",
 ];
 
-// --- Components ---
-
-// 1. Product Card (Accessible & Memoized)
 const ProductCard = memo(
   ({ product, onClick }: { product: Product; onClick: () => void }) => (
     <motion.button
@@ -135,9 +132,7 @@ const Chat = () => {
   const [agentStatus, setAgentStatus] = useState<string>("");
   const [isTyping, setIsTyping] = useState<boolean>(false);
 
-  const [isConnected, setIsConnected] = useState<boolean>(
-    socketRef.current.connected
-  );
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
   const [fullScreen, setFullScreen] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -192,19 +187,32 @@ const Chat = () => {
     };
 
     const onConnect = () => {
+      console.log("Socket connected");
       setIsConnected(true);
       initSession();
     };
 
-    const onDisconnect = () => setIsConnected(false);
+    const onDisconnect = (reason: string) => {
+      console.log("Socket disconnected:", reason);
+      setIsConnected(false);
+      setIsTyping(false);
+      setAgentStatus("");
+    };
 
     const onChatHistory = (history: Message[]) => {
       setTimeout(() => {
         setMessages(
-          history.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }))
+          history.map((m) => ({
+            ...m,
+            timestamp:
+              m.timestamp instanceof Date
+                ? m.timestamp
+                : new Date(m.timestamp || Date.now()),
+          }))
         );
         setIsLoadingHistory(false);
         setIsAtBottom(true);
+        scrollToBottom("auto");
       }, 600);
     };
 
@@ -233,7 +241,7 @@ const Chat = () => {
         return [
           ...prev,
           {
-            id: Date.now().toString(),
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             sender: "bot",
             text: "",
             products: data.data,
@@ -249,7 +257,7 @@ const Chat = () => {
       setMessages((p) => [
         ...p,
         {
-          id: Date.now().toString(),
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           sender: "bot",
           text: `✅ ${data.data || "Order cancelled."}`,
           timestamp: new Date(),
@@ -260,6 +268,8 @@ const Chat = () => {
 
     const onChatStream = (data: { chunk?: string; content?: string }) => {
       const text = data.chunk || data.content || "";
+      if (!text) return;
+
       setAgentStatus("");
       setIsTyping(false);
 
@@ -271,7 +281,7 @@ const Chat = () => {
         return [
           ...prev,
           {
-            id: Date.now().toString(),
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             sender: "bot",
             text,
             timestamp: new Date(),
@@ -293,7 +303,7 @@ const Chat = () => {
       setMessages((p) => [
         ...p,
         {
-          id: Date.now().toString(),
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           sender: "bot",
           text: `🛒 "${productName}" added to cart.`,
           timestamp: new Date(),
@@ -333,15 +343,24 @@ const Chat = () => {
     socket.on("orderCancelled", onOrderCancelled);
     socket.on("chatEnd", onChatEnd);
 
+    let checkConnectionTimeout: ReturnType<typeof setTimeout> | null = null;
     if (socket.connected) {
       setIsConnected(true);
       initSession();
     } else {
       socket.connect();
+      checkConnectionTimeout = setTimeout(() => {
+        if (socket.connected) {
+          setIsConnected(true);
+          initSession();
+        }
+      }, 100);
     }
 
-    // Cleanup
     return () => {
+      if (checkConnectionTimeout) {
+        clearTimeout(checkConnectionTimeout);
+      }
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("chatHistory", onChatHistory);
@@ -355,15 +374,32 @@ const Chat = () => {
   }, [queryClient, user, socketKey]);
 
   const sendMessage = (text: string) => {
-    if (!text.trim()) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+
+    if (!isConnected) {
+      console.warn("Cannot send message: socket not connected");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          sender: "bot",
+          text: "⚠️ Connection lost. Please wait for reconnection...",
+          timestamp: new Date(),
+          isStreaming: false,
+          isError: true,
+        },
+      ]);
+      return;
+    }
 
     setIsAtBottom(true);
     setMessages((prev) => [
       ...prev.map((m) => ({ ...m, isStreaming: false })),
       {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         sender: "user",
-        text,
+        text: trimmedText,
         timestamp: new Date(),
         isStreaming: false,
       },
@@ -380,14 +416,44 @@ const Chat = () => {
     }
 
     const socket = socketRef.current;
-    if (!socket.connected) socket.connect();
-    socket.emit("chatMessage", { message: text, session_id: sessionId });
+    try {
+      if (!socket.connected) {
+        socket.connect();
+        socket.once("connect", () => {
+          socket.emit("chatMessage", {
+            message: trimmedText,
+            session_id: sessionId,
+          });
+        });
+      } else {
+        socket.emit("chatMessage", {
+          message: trimmedText,
+          session_id: sessionId,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setIsTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          sender: "bot",
+          text: "❌ Failed to send message. Please try again.",
+          timestamp: new Date(),
+          isStreaming: false,
+          isError: true,
+        },
+      ]);
+    }
   };
 
   const handleClearChat = () => {
     setMessages([]);
     setIsOpen(false);
     setIsConnected(false);
+    setIsTyping(false);
+    setAgentStatus("");
 
     resetSocket();
 
@@ -396,6 +462,9 @@ const Chat = () => {
 
     setTimeout(() => {
       setIsOpen(true);
+      if (socketRef.current && !socketRef.current.connected) {
+        socketRef.current.connect();
+      }
     }, 300);
   };
 
@@ -685,12 +754,7 @@ const Chat = () => {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  disabled={
-                    !isConnected &&
-                    !messages.length &&
-                    !input &&
-                    !isLoadingHistory
-                  }
+                  disabled={!isConnected || isLoadingHistory}
                   placeholder={
                     isLoadingHistory
                       ? "Loading history..."
